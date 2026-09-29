@@ -1,4 +1,4 @@
-import { $ as defineComponent, a4 as onMounted, a5 as onBeforeUnmount, a0 as openBlock, a6 as createBlock, a2 as createBaseVNode, a1 as createElementBlock, a7 as createCommentVNode, a8 as Fragment, a9 as withModifiers, aa as Teleport, ab as computed } from "./main-BqnENbPf.mjs";
+import { $ as defineComponent, a4 as onMounted, a5 as onBeforeUnmount, a0 as openBlock, a6 as createBlock, a2 as createBaseVNode, a1 as createElementBlock, a7 as createCommentVNode, a8 as Fragment, a9 as withModifiers, aa as Teleport, ab as computed } from "./main-0dUl7K9v.mjs";
 const _hoisted_1 = ["src"];
 const _hoisted_2 = ["src"];
 const _hoisted_3 = ["src", "alt"];
@@ -96,4 +96,4 @@ const _sfc_main = /* @__PURE__ */ defineComponent({
 export {
   _sfc_main as default
 };
-//# sourceMappingURL=MediaLightbox-CvCrG1Bt.mjs.map
+//# sourceMappingURL=MediaLightbox-Au8iIuJp.mjs.map

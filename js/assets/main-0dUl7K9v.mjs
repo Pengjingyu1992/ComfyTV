@@ -59985,7 +59985,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-0fQz6pHr.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-ClEsBsyv.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86587,7 +86587,7 @@ const _sfc_main$4o = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-BAqzwuCw.mjs"),
+      loader: () => import("./AgentPanelRoot-q0-Rsh12.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -137205,7 +137205,7 @@ function parseProbeableViewUrl(videoUrl) {
 }
 let mediabunnyModulePromise;
 function importMediabunny() {
-  return import("./index-6AXSwC3O.mjs");
+  return import("./index-BoWrKcex.mjs");
 }
 function loadMediabunny() {
   mediabunnyModulePromise ?? (mediabunnyModulePromise = importMediabunny().catch((error2) => {
@@ -148474,7 +148474,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-DYkuPmHW.mjs");
+    const { STLLoader } = await import("./STLLoader-BwfuMsJ4.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -148482,7 +148482,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-CTA8OwED.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-5khStt5S.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -244353,4 +244353,4 @@ export {
   Camera as y,
   Box3 as z
 };
-//# sourceMappingURL=main-BqnENbPf.mjs.map
+//# sourceMappingURL=main-0dUl7K9v.mjs.map

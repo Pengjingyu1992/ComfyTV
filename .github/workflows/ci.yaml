@@ -66,7 +66,7 @@ jobs:
       - name: Install test deps
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov aiohttp sqlalchemy av pillow numpy
+          pip install pytest pytest-asyncio pytest-cov aiohttp sqlalchemy av pillow numpy pyyaml
 
       - name: Run pytest (geometry coverage gate)
         # The mesh3d algorithm tier importorskips torch and is skipped here (same
