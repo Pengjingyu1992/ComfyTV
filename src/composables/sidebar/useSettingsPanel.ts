@@ -12,6 +12,14 @@ import { agentProviders, refreshAgentStatus } from '@/agent/status'
 type Values = Record<string, SettingValue>
 export type ProbeState = 'checking' | 'online' | 'offline'
 
+/** A model suggestion chip: `value` is stored, `label` is shown. */
+export interface ModelSuggestion {
+  value: string
+  label: string
+  /** Billing route id, when the provider distinguishes them. */
+  group?: string
+}
+
 export interface SettingSection {
   id: string
   master: SettingRow | null
@@ -103,10 +111,23 @@ export function useSettingsPanel(
   const probes = ref<Record<string, ProbeState>>({})
   const collapsedStore = useStorage<Record<string, boolean>>(COLLAPSED_STORAGE_KEY, {})
 
-  function modelSuggestions(key: string): string[] {
+  function modelSuggestions(key: string): ModelSuggestion[] {
     if (!key.startsWith(MODEL_KEY_PREFIX)) return []
     const providerId = key.slice(MODEL_KEY_PREFIX.length)
-    return agentProviders.value.find((p) => p.id === providerId)?.models ?? []
+    const provider = agentProviders.value.find((p) => p.id === providerId)
+    if (!provider) return []
+    // Providers that publish value/label options (opaque model values, e.g.
+    // DeepSeek Harness encodes provider+model into one string) get readable
+    // chips; the setting still stores `value` — the exact runtime value.
+    const rows = provider.model_options ?? []
+    if (rows.length) {
+      return rows.map((r) => ({
+        value: r.value,
+        label: r.label,
+        group: r.group,
+      }))
+    }
+    return (provider.models ?? []).map((m) => ({ value: m, label: m }))
   }
 
   const changedKeys = computed(() =>

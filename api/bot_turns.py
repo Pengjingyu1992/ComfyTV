@@ -200,6 +200,20 @@ async def _run_turn(chat: dict, text: str, state: _TurnState, *,
     await asyncio.sleep(0.1)
 
     async def emit(ev: BotEvent) -> None:
+        if ev.t == "session":
+            # Internal event, never forwarded to the frontend: the upstream
+            # session id exists before the turn runs, and losing it would orphan
+            # that session so the chat could not be resumed.  A write failure is
+            # raised on purpose — the provider aborts before submitting the
+            # prompt rather than running work it cannot attribute.
+            if not ev.id:
+                return
+            if storage.update_bot_message(state.message_id,
+                                          resume_token_after=ev.id) is None:
+                raise RuntimeError("bot message no longer exists")
+            if storage.update_bot_chat(chat_id, resume_token=ev.id) is None:
+                raise RuntimeError("bot chat no longer exists")
+            return
         payload = _apply_event(state, ev)
         if payload is None:
             return

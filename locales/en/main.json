@@ -433,6 +433,10 @@
   "settings": {
     "title": "Settings",
     "hint": "Defaults come from comfytv.properties in the ComfyTV directory. Values saved here are stored in the database and take precedence.",
+    "modelRoutes": {
+      "desktop-account": "Desktop account",
+      "api-key": "API key"
+    },
     "loading": "Loading…",
     "save": "Save",
     "saving": "Saving…",
@@ -532,7 +536,7 @@
       },
       "bot-enable-comfy-mcp": {
         "label": "Mount comfy-mcp",
-        "desc": "Also mount the official comfy-mcp server (read-only tool set: node catalog, workflow validation, model/template search) in bot sessions. Claude Code and Qwen Code only — Codex and Local LLM stay comfytv-only."
+        "desc": "Also mount the official comfy-mcp server (read-only tool set: node catalog, workflow validation, model/template search) in bot sessions. Claude Code and Qwen Code only — Codex, DeepSeek Harness, Local LLM and ComfyUI LLM stay comfytv-only."
       },
       "bot-comfy-mcp-command": {
         "label": "comfy-mcp command",
@@ -542,6 +546,24 @@
       "bot-always-allow-runs": {
         "label": "Always allow bot runs",
         "desc": "Run stages immediately without an approval card (the default). Disable this to let chats switched to Ask mode pause for your approval before each run."
+      },
+      "bot-model-deepseek-harness": {
+        "label": "DeepSeek Harness model",
+        "desc": "Exact model route handed to the DeepSeek Harness runtime. Blank = the first model on the selected sign-in route, resolved from the runtime's own catalog. It never falls back to the other route.",
+        "placeholder": "Runtime default"
+      },
+      "bot-deepseek-harness-app-path": {
+        "label": "DeepSeek Harness app",
+        "desc": "Path to the installed DeepSeek Harness desktop app. Blank = look in /Applications, then ~/Applications.",
+        "placeholder": "/Applications/DeepSeek Harness.app"
+      },
+      "bot-deepseek-harness-auth-mode": {
+        "label": "DeepSeek Harness sign-in",
+        "desc": "Which route pays for DeepSeek Harness turns. Desktop account reuses the account you signed into the desktop app; API key uses the DEEPSEEK_API_KEY credential. The provider never switches routes on its own.",
+        "options": {
+          "desktop-account": "Desktop account",
+          "api-key": "API key"
+        }
       },
       "enable-skills": {
         "label": "Enable Agent Skills",

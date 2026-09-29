@@ -433,6 +433,10 @@
   "settings": {
     "title": "设置",
     "hint": "默认值来自 ComfyTV 目录下的 comfytv.properties。此处保存的值写入数据库,并优先生效。",
+    "modelRoutes": {
+      "desktop-account": "桌面账号",
+      "api-key": "API Key"
+    },
     "loading": "加载中…",
     "save": "保存",
     "saving": "保存中…",
@@ -532,7 +536,7 @@
       },
       "bot-enable-comfy-mcp": {
         "label": "挂载 comfy-mcp",
-        "desc": "在 bot 会话中同时挂载官方 comfy-mcp(只读工具集:节点目录、工作流校验、模型/模板搜索)。仅 Claude Code 和 Qwen Code — Codex 与 Local LLM 保持只挂 comfytv。"
+        "desc": "在 bot 会话中同时挂载官方 comfy-mcp(只读工具集:节点目录、工作流校验、模型/模板搜索)。仅 Claude Code 和 Qwen Code — Codex、DeepSeek Harness、Local LLM 与 ComfyUI LLM 保持只挂 comfytv。"
       },
       "bot-comfy-mcp-command": {
         "label": "comfy-mcp 命令",
@@ -542,6 +546,24 @@
       "bot-always-allow-runs": {
         "label": "总是允许 bot 运行",
         "desc": "不弹运行审批卡,bot 直接执行(默认行为)。关闭后,切到询问模式的会话才会在每次运行前等你批准。"
+      },
+      "bot-model-deepseek-harness": {
+        "label": "DeepSeek Harness 模型",
+        "desc": "交给 DeepSeek Harness 运行时的精确模型路由。留空 = 取所选登录方式下运行时候选清单里的第一个。不会自动改用另一种登录方式。",
+        "placeholder": "运行时默认"
+      },
+      "bot-deepseek-harness-app-path": {
+        "label": "DeepSeek Harness 应用路径",
+        "desc": "已安装的 DeepSeek Harness 桌面应用路径。留空 = 依次查找 /Applications 与 ~/Applications。",
+        "placeholder": "/Applications/DeepSeek Harness.app"
+      },
+      "bot-deepseek-harness-auth-mode": {
+        "label": "DeepSeek Harness 登录方式",
+        "desc": "DeepSeek Harness 回合由哪条路由计费。桌面账号复用你在桌面应用里登录的账号；API Key 使用 DEEPSEEK_API_KEY 凭据。该 provider 不会自行切换路由。",
+        "options": {
+          "desktop-account": "桌面账号",
+          "api-key": "API Key"
+        }
       },
       "enable-skills": {
         "label": "启用 Agent Skills",

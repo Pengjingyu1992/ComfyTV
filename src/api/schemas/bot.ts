@@ -10,6 +10,18 @@ export const BotProviderStatusSchema = z.object({
   stateful:    z.boolean(),
   attachments: z.boolean().optional(),
   models:      z.array(z.string()).optional(),
+  // Providers whose model values are opaque (e.g. DeepSeek Harness encodes the
+  // provider and model into one string) publish an explicit list: `label` is
+  // shown, `value` is what gets saved and sent back verbatim.
+  model_options: z
+    .array(
+      z.object({
+        value: z.string(),
+        label: z.string(),
+        group: z.string().optional(),
+      }),
+    )
+    .optional(),
 })
 export type BotProviderStatus = z.infer<typeof BotProviderStatusSchema>
 

@@ -9,7 +9,7 @@ var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read fr
 var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
 import { app as app$2 } from "../../../scripts/app.js";
 /**
-* @vue/shared v3.5.34
+* @vue/shared v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -264,7 +264,7 @@ const stringifySymbol = (v, i = "") => {
   );
 };
 /**
-* @vue/reactivity v3.5.34
+* @vue/reactivity v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1445,9 +1445,6 @@ function targetTypeMap(rawType) {
       return 0;
   }
 }
-function getTargetType(value) {
-  return value["__v_skip"] || !Object.isExtensible(value) ? 0 : targetTypeMap(toRawType(value));
-}
 // @__NO_SIDE_EFFECTS__
 function reactive(target) {
   if (/* @__PURE__ */ isReadonly(target)) {
@@ -1498,13 +1495,16 @@ function createReactiveObject(target, isReadonly2, baseHandlers, collectionHandl
   if (target["__v_raw"] && !(isReadonly2 && target["__v_isReactive"])) {
     return target;
   }
-  const targetType = getTargetType(target);
-  if (targetType === 0) {
+  if (target["__v_skip"] || !Object.isExtensible(target)) {
     return target;
   }
   const existingProxy = proxyMap.get(target);
   if (existingProxy) {
     return existingProxy;
+  }
+  const targetType = targetTypeMap(toRawType(target));
+  if (targetType === 0) {
+    return target;
   }
   const proxy = new Proxy(
     target,
@@ -1949,7 +1949,7 @@ function traverse(value, depth = Infinity, seen) {
   return value;
 }
 /**
-* @vue/runtime-core v3.5.34
+* @vue/runtime-core v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -2666,19 +2666,18 @@ const TeleportImpl = {
       target,
       props
     } = vnode;
-    let shouldRemove = doRemove || !isTeleportDisabled(props);
+    const shouldRemove = doRemove || !isTeleportDisabled(props);
     const pendingMount = pendingMounts.get(vnode);
     if (pendingMount) {
       pendingMount.flags |= 8;
       pendingMounts.delete(vnode);
-      shouldRemove = false;
     }
     if (target) {
       hostRemove(targetStart);
       hostRemove(targetAnchor);
     }
     doRemove && hostRemove(anchor2);
-    if (shapeFlag & 16) {
+    if (!pendingMount && shapeFlag & 16) {
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
         unmount2(
@@ -6144,9 +6143,13 @@ function baseCreateRenderer(options, createHydrationFns) {
     const needTransition2 = moveType !== 2 && shapeFlag & 1 && transition;
     if (needTransition2) {
       if (moveType === 0) {
-        transition.beforeEnter(el2);
-        hostInsert(el2, container, anchor2);
-        queuePostRenderEffect(() => transition.enter(el2), parentSuspense);
+        if (transition.persisted && !el2[leaveCbKey]) {
+          hostInsert(el2, container, anchor2);
+        } else {
+          transition.beforeEnter(el2);
+          hostInsert(el2, container, anchor2);
+          queuePostRenderEffect(() => transition.enter(el2), parentSuspense);
+        }
       } else {
         const { leave, delayLeave, afterLeave } = transition;
         const remove22 = () => {
@@ -6157,16 +6160,21 @@ function baseCreateRenderer(options, createHydrationFns) {
           }
         };
         const performLeave = () => {
+          const wasLeaving = el2._isLeaving || !!el2[leaveCbKey];
           if (el2._isLeaving) {
             el2[leaveCbKey](
               true
               /* cancelled */
             );
           }
-          leave(el2, () => {
+          if (transition.persisted && !wasLeaving) {
             remove22();
-            afterLeave && afterLeave();
-          });
+          } else {
+            leave(el2, () => {
+              remove22();
+              afterLeave && afterLeave();
+            });
+          }
         };
         if (delayLeave) {
           delayLeave(el2, remove22, performLeave);
@@ -7177,9 +7185,9 @@ function isMemoSame(cached2, memo) {
   }
   return true;
 }
-const version$1 = "3.5.34";
+const version$1 = "3.5.35";
 /**
-* @vue/runtime-dom v3.5.34
+* @vue/runtime-dom v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -7814,30 +7822,41 @@ function createInvoker(initialValue, instance2) {
     } else if (e._vts <= invoker.attached) {
       return;
     }
-    callWithAsyncErrorHandling(
-      patchStopImmediatePropagation(e, invoker.value),
-      instance2,
-      5,
-      [e]
-    );
+    const value = invoker.value;
+    if (isArray$1(value)) {
+      const originalStop = e.stopImmediatePropagation;
+      e.stopImmediatePropagation = () => {
+        originalStop.call(e);
+        e._stopped = true;
+      };
+      const handlers2 = value.slice();
+      const args = [e];
+      for (let i = 0; i < handlers2.length; i++) {
+        if (e._stopped) {
+          break;
+        }
+        const handler = handlers2[i];
+        if (handler) {
+          callWithAsyncErrorHandling(
+            handler,
+            instance2,
+            5,
+            args
+          );
+        }
+      }
+    } else {
+      callWithAsyncErrorHandling(
+        value,
+        instance2,
+        5,
+        [e]
+      );
+    }
   };
   invoker.value = initialValue;
   invoker.attached = getNow();
   return invoker;
-}
-function patchStopImmediatePropagation(e, value) {
-  if (isArray$1(value)) {
-    const originalStop = e.stopImmediatePropagation;
-    e.stopImmediatePropagation = () => {
-      originalStop.call(e);
-      e._stopped = true;
-    };
-    return value.map(
-      (fn3) => (e2) => !e2._stopped && fn3 && fn3(e2)
-    );
-  } else {
-    return value;
-  }
 }
 const isNativeOn = (key) => key.charCodeAt(0) === 111 && key.charCodeAt(1) === 110 && // lowercase letter
 key.charCodeAt(2) > 96 && key.charCodeAt(2) < 123;
@@ -11338,7 +11357,7 @@ const _hoisted_3$4d = { class: "ctv:flex-1 ctv:truncate" };
 const _hoisted_4$3I = { class: "ctv:flex-1 ctv:truncate" };
 const _hoisted_5$3u = { class: "ctv:flex-1 ctv:truncate" };
 const _hoisted_6$3d = { class: "ctv:flex-1 ctv:truncate" };
-const _hoisted_7$2F = { class: "ctv:flex-1 ctv:truncate" };
+const _hoisted_7$2G = { class: "ctv:flex-1 ctv:truncate" };
 const _sfc_main$4O = /* @__PURE__ */ defineComponent({
   __name: "AssetContextMenu",
   props: {
@@ -11417,7 +11436,7 @@ const _sfc_main$4O = /* @__PURE__ */ defineComponent({
             onClick: _cache2[6] || (_cache2[6] = ($event) => emit2("action", "delete"))
           }, [
             createVNode(unref(IconTrash), { class: "ctv:size-4 ctv:shrink-0" }),
-            createBaseVNode("span", _hoisted_7$2F, toDisplayString$1(_ctx.$t("assets.card.delete")), 1)
+            createBaseVNode("span", _hoisted_7$2G, toDisplayString$1(_ctx.$t("assets.card.delete")), 1)
           ], 2)
         ], 4)
       ], 32);
@@ -17275,7 +17294,17 @@ const BotProviderStatusSchema = object({
   detail: string(),
   stateful: boolean(),
   attachments: boolean().optional(),
-  models: array(string()).optional()
+  models: array(string()).optional(),
+  // Providers whose model values are opaque (e.g. DeepSeek Harness encodes the
+  // provider and model into one string) publish an explicit list: `label` is
+  // shown, `value` is what gets saved and sent back verbatim.
+  model_options: array(
+    object({
+      value: string(),
+      label: string(),
+      group: string().optional()
+    })
+  ).optional()
 });
 const BotStatusSchema = object({
   enabled: boolean().optional(),
@@ -18090,8 +18119,8 @@ const _hoisted_3$4c = ["src"];
 const _hoisted_4$3H = ["title"];
 const _hoisted_5$3t = ["title"];
 const _hoisted_6$3c = ["title"];
-const _hoisted_7$2E = ["title"];
-const _hoisted_8$2d = {
+const _hoisted_7$2F = ["title"];
+const _hoisted_8$2e = {
   key: 5,
   class: "ctv:absolute ctv:bottom-1.5 ctv:left-1.5 ctv:flex ctv:items-center ctv:justify-center ctv:size-5 ctv:rounded ctv:bg-black/65 ctv:text-white/90 ctv:pointer-events-none"
 };
@@ -18115,12 +18144,12 @@ const _hoisted_13$1h = {
 const _hoisted_14$19 = ["title"];
 const _hoisted_15$10 = ["title"];
 const _hoisted_16$W = { class: "ctv:flex ctv:min-w-0 ctv:flex-col ctv:gap-1" };
-const _hoisted_17$Q = ["title"];
-const _hoisted_18$L = {
+const _hoisted_17$R = ["title"];
+const _hoisted_18$M = {
   key: 0,
   class: "ctv:text-2xs ctv:leading-none ctv:text-muted-foreground"
 };
-const _hoisted_19$J = {
+const _hoisted_19$K = {
   key: 1,
   class: "ctv:flex ctv:flex-wrap ctv:gap-0.5"
 };
@@ -18224,7 +18253,7 @@ const _sfc_main$4L = /* @__PURE__ */ defineComponent({
               ]),
               _: 1
             }, 8, ["src", "alt"])
-          ], 8, _hoisted_7$2E)) : (openBlock(), createBlock(_sfc_main$4M, {
+          ], 8, _hoisted_7$2F)) : (openBlock(), createBlock(_sfc_main$4M, {
             key: 4,
             src: unref(assetPreviewUrl)(__props.asset),
             "thumb-max": unref(THUMB_CELL),
@@ -18233,7 +18262,7 @@ const _sfc_main$4L = /* @__PURE__ */ defineComponent({
             loading: "lazy",
             class: "ctv-asset-thumb ctv:absolute ctv:inset-0 ctv:size-full ctv:object-cover"
           }, null, 8, ["src", "thumb-max", "alt", "title"])),
-          __props.asset.media_type === "video" || __props.asset.media_type === "audio" ? (openBlock(), createElementBlock("span", _hoisted_8$2d, [
+          __props.asset.media_type === "video" || __props.asset.media_type === "audio" ? (openBlock(), createElementBlock("span", _hoisted_8$2e, [
             __props.asset.media_type === "video" ? (openBlock(), createBlock(unref(IconPlay), {
               key: 0,
               class: "ctv:size-3"
@@ -18292,9 +18321,9 @@ const _sfc_main$4L = /* @__PURE__ */ defineComponent({
           createBaseVNode("span", {
             class: "ctv:line-clamp-2 ctv:break-all ctv:text-xs ctv:leading-tight ctv:text-base-foreground",
             title: __props.tooltip
-          }, toDisplayString$1(__props.asset.name || "—"), 9, _hoisted_17$Q),
-          __props.meta ? (openBlock(), createElementBlock("div", _hoisted_18$L, toDisplayString$1(__props.meta), 1)) : createCommentVNode("", true),
-          __props.categoryNames.length ? (openBlock(), createElementBlock("div", _hoisted_19$J, [
+          }, toDisplayString$1(__props.asset.name || "—"), 9, _hoisted_17$R),
+          __props.meta ? (openBlock(), createElementBlock("div", _hoisted_18$M, toDisplayString$1(__props.meta), 1)) : createCommentVNode("", true),
+          __props.categoryNames.length ? (openBlock(), createElementBlock("div", _hoisted_19$K, [
             (openBlock(true), createElementBlock(Fragment$1, null, renderList(__props.categoryNames, (name) => {
               return openBlock(), createElementBlock("span", {
                 key: name,
@@ -18314,7 +18343,7 @@ const _export_sfc = (sfc, props) => {
   }
   return target;
 };
-const AssetGridCard = /* @__PURE__ */ _export_sfc(_sfc_main$4L, [["__scopeId", "data-v-1cd6c0c8"]]);
+const AssetGridCard = /* @__PURE__ */ _export_sfc(_sfc_main$4L, [["__scopeId", "data-v-84adc6d2"]]);
 const _hoisted_1$6B = { class: "ctv:relative ctv:flex ctv:size-8 ctv:shrink-0 ctv:items-center ctv:justify-center ctv:overflow-hidden ctv:rounded-sm ctv:bg-secondary-background" };
 const _hoisted_2$4j = ["title"];
 const _hoisted_3$4b = {
@@ -18324,8 +18353,8 @@ const _hoisted_3$4b = {
 const _hoisted_4$3G = { class: "ctv:flex ctv:min-w-0 ctv:flex-1 ctv:flex-col ctv:gap-1" };
 const _hoisted_5$3s = { class: "ctv:flex ctv:min-w-0 ctv:items-center ctv:gap-1" };
 const _hoisted_6$3b = ["title"];
-const _hoisted_7$2D = ["title"];
-const _hoisted_8$2c = ["title"];
+const _hoisted_7$2E = ["title"];
+const _hoisted_8$2d = ["title"];
 const _hoisted_9$1$ = {
   key: 1,
   class: "ctv-asset-actions ctv:flex ctv:shrink-0 ctv:items-center ctv:gap-1"
@@ -18425,13 +18454,13 @@ const _sfc_main$4K = /* @__PURE__ */ defineComponent({
               key: 0,
               class: "ctv:shrink-0 ctv:px-1 ctv:py-px ctv:rounded-sm ctv:text-3xs ctv:font-semibold ctv:bg-destructive-background ctv:text-white",
               title: _ctx.$t("assets.card.fileMissingHint")
-            }, toDisplayString$1(_ctx.$t("assets.card.fileMissing")), 9, _hoisted_7$2D)) : createCommentVNode("", true)
+            }, toDisplayString$1(_ctx.$t("assets.card.fileMissing")), 9, _hoisted_7$2E)) : createCommentVNode("", true)
           ]),
           secondary.value ? (openBlock(), createElementBlock("span", {
             key: 0,
             class: "ctv:block ctv:truncate ctv:text-xs ctv:leading-none ctv:text-muted-foreground",
             title: secondary.value
-          }, toDisplayString$1(secondary.value), 9, _hoisted_8$2c)) : createCommentVNode("", true)
+          }, toDisplayString$1(secondary.value), 9, _hoisted_8$2d)) : createCommentVNode("", true)
         ]),
         !__props.selectable ? (openBlock(), createElementBlock("div", _hoisted_9$1$, [
           __props.asset.media_type === "image" ? (openBlock(), createElementBlock("button", {
@@ -18454,7 +18483,7 @@ const _sfc_main$4K = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const AssetListItem = /* @__PURE__ */ _export_sfc(_sfc_main$4K, [["__scopeId", "data-v-dae33513"]]);
+const AssetListItem = /* @__PURE__ */ _export_sfc(_sfc_main$4K, [["__scopeId", "data-v-3073fa9a"]]);
 const _hoisted_1$6A = {
   viewBox: "0 0 24 24",
   width: "1.2em",
@@ -18481,8 +18510,8 @@ const _hoisted_3$4a = { class: "ctv:flex-1 ctv:truncate ctv:text-xs ctv:font-sem
 const _hoisted_4$3F = ["disabled", "title"];
 const _hoisted_5$3r = ["disabled", "title"];
 const _hoisted_6$3a = ["disabled", "title"];
-const _hoisted_7$2C = ["disabled", "title"];
-const _hoisted_8$2b = ["title"];
+const _hoisted_7$2D = ["disabled", "title"];
+const _hoisted_8$2c = ["title"];
 const _sfc_main$4J = /* @__PURE__ */ defineComponent({
   __name: "AssetSelectionBar",
   props: {
@@ -18541,14 +18570,14 @@ const _sfc_main$4J = /* @__PURE__ */ defineComponent({
           onClick: _cache2[4] || (_cache2[4] = ($event) => emit2("remove"))
         }, [
           createVNode(unref(IconTrash), { class: "ctv:size-4" })
-        ], 10, _hoisted_7$2C),
+        ], 10, _hoisted_7$2D),
         createBaseVNode("button", {
           class: normalizeClass(unref(btnClass2)),
           title: _ctx.$t("assets.select.exit"),
           onClick: _cache2[5] || (_cache2[5] = ($event) => emit2("exit"))
         }, [
           createVNode(unref(IconX), { class: "ctv:size-4" })
-        ], 10, _hoisted_8$2b)
+        ], 10, _hoisted_8$2c)
       ]);
     };
   }
@@ -54848,7 +54877,7 @@ function WebGLTextures(_gl, extensions, state2, properties, capabilities, utils,
   function generateMipmap(target) {
     _gl.generateMipmap(target);
   }
-  function getTargetType2(texture) {
+  function getTargetType(texture) {
     if (texture.isWebGLCubeRenderTarget) return _gl.TEXTURE_CUBE_MAP;
     if (texture.isWebGL3DRenderTarget) return _gl.TEXTURE_3D;
     if (texture.isWebGLArrayRenderTarget || texture.isCompressedArrayTexture) return _gl.TEXTURE_2D_ARRAY;
@@ -55955,7 +55984,7 @@ function WebGLTextures(_gl, extensions, state2, properties, capabilities, utils,
     for (let i = 0, il = textures.length; i < il; i++) {
       const texture = textures[i];
       if (textureNeedsGenerateMipmaps(texture)) {
-        const targetType = getTargetType2(renderTarget);
+        const targetType = getTargetType(renderTarget);
         const webglTexture = properties.get(texture).__webglTexture;
         state2.bindTexture(targetType, webglTexture);
         generateMipmap(targetType);
@@ -59956,7 +59985,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-SjoxaPSG.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-0fQz6pHr.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -60967,8 +60996,8 @@ const _hoisted_3$47 = ["disabled", "title"];
 const _hoisted_4$3D = { class: "ctv:shrink-0 ctv:flex ctv:items-center ctv:gap-1.5 ctv:py-1.5 ctv:px-2.5 ctv:border-b ctv:border-border-subtle" };
 const _hoisted_5$3q = { class: "ctv:relative ctv:flex-1 ctv:min-w-0" };
 const _hoisted_6$39 = ["placeholder"];
-const _hoisted_7$2B = ["title"];
-const _hoisted_8$2a = ["title"];
+const _hoisted_7$2C = ["title"];
+const _hoisted_8$2b = ["title"];
 const _hoisted_9$1_ = { class: "ctv:shrink-0 ctv:flex ctv:flex-wrap ctv:items-center ctv:gap-1 ctv:py-1.5 ctv:px-2.5 ctv:border-b ctv:border-border-subtle" };
 const _hoisted_10$1L = ["onDrop", "onClick"];
 const _hoisted_11$1A = ["title", "onClick"];
@@ -60980,17 +61009,17 @@ const _hoisted_16$V = {
   key: 2,
   class: "ctv:shrink-0 ctv:flex ctv:items-center ctv:gap-2 ctv:my-1.5 ctv:mx-2.5 ctv:py-1.5 ctv:px-2 ctv:text-xs ctv:rounded ctv:bg-destructive-background/15 ctv:border ctv:border-destructive-background/50 ctv:text-destructive-background"
 };
-const _hoisted_17$P = { class: "ctv:flex-1" };
-const _hoisted_18$K = {
+const _hoisted_17$Q = { class: "ctv:flex-1" };
+const _hoisted_18$L = {
   key: 3,
   class: "ctv:flex-1 ctv:min-h-0 ctv:overflow-y-auto ctv:p-1.5"
 };
-const _hoisted_19$I = { class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60" };
-const _hoisted_20$C = {
+const _hoisted_19$J = { class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60" };
+const _hoisted_20$D = {
   key: 5,
   class: "ctv:absolute ctv:inset-0 ctv:z-10 ctv:flex ctv:items-center ctv:justify-center ctv:pointer-events-none ctv:bg-primary-background/15 ctv:border-2 ctv:border-dashed ctv:border-primary-background ctv:rounded-lg"
 };
-const _hoisted_21$w = { class: "ctv:py-1 ctv:px-2.5 ctv:rounded ctv:text-xs ctv:font-semibold ctv:bg-interface-panel-surface ctv:text-base-foreground" };
+const _hoisted_21$x = { class: "ctv:py-1 ctv:px-2.5 ctv:rounded ctv:text-xs ctv:font-semibold ctv:bg-interface-panel-surface ctv:text-base-foreground" };
 const _hoisted_22$t = { class: "ctv:flex-1 ctv:truncate" };
 const _hoisted_23$s = { class: "ctv:flex-1 ctv:truncate" };
 const _hoisted_24$q = ["disabled", "title"];
@@ -61186,7 +61215,7 @@ const _sfc_main$4F = /* @__PURE__ */ defineComponent({
             onClick: _cache2[8] || (_cache2[8] = ($event) => unref(selection).toggleSelectMode())
           }, [
             createVNode(unref(IconSquareCheck), { class: "ctv:size-4" })
-          ], 10, _hoisted_7$2B),
+          ], 10, _hoisted_7$2C),
           createBaseVNode("button", {
             class: normalizeClass(unref(iconBtnClass2)),
             title: _ctx.$t("assets.view.settings"),
@@ -61194,7 +61223,7 @@ const _sfc_main$4F = /* @__PURE__ */ defineComponent({
             (...args) => unref(openSettingsMenu) && unref(openSettingsMenu)(...args))
           }, [
             createVNode(unref(IconSettings2), { class: "ctv:size-4" })
-          ], 10, _hoisted_8$2a)
+          ], 10, _hoisted_8$2b)
         ]),
         createBaseVNode("div", _hoisted_9$1_, [
           createBaseVNode("button", {
@@ -61272,7 +61301,7 @@ const _sfc_main$4F = /* @__PURE__ */ defineComponent({
           }), 128))
         ]),
         unref(uploadError) ? (openBlock(), createElementBlock("div", _hoisted_16$V, [
-          createBaseVNode("span", _hoisted_17$P, toDisplayString$1(unref(uploadError)), 1),
+          createBaseVNode("span", _hoisted_17$Q, toDisplayString$1(unref(uploadError)), 1),
           createBaseVNode("button", {
             class: "ctv:inline-flex ctv:bg-transparent ctv:border-none ctv:cursor-pointer ctv:text-inherit ctv:opacity-70 ctv:hover:opacity-100",
             onClick: _cache2[14] || (_cache2[14] = ($event) => uploadError.value = null)
@@ -61280,8 +61309,8 @@ const _sfc_main$4F = /* @__PURE__ */ defineComponent({
             createVNode(unref(IconX), { class: "ctv:size-3.5" })
           ])
         ])) : createCommentVNode("", true),
-        unref(visibleAssets).length === 0 ? (openBlock(), createElementBlock("div", _hoisted_18$K, [
-          createBaseVNode("div", _hoisted_19$I, toDisplayString$1(unref(emptyText)), 1)
+        unref(visibleAssets).length === 0 ? (openBlock(), createElementBlock("div", _hoisted_18$L, [
+          createBaseVNode("div", _hoisted_19$J, toDisplayString$1(unref(emptyText)), 1)
         ])) : (openBlock(), createBlock(_sfc_main$4I, {
           key: 4,
           items: virtualItems.value,
@@ -61307,8 +61336,8 @@ const _sfc_main$4F = /* @__PURE__ */ defineComponent({
           ]),
           _: 1
         }, 8, ["items", "grid-style", "default-item-height"])),
-        unref(fileDragDepth) > 0 ? (openBlock(), createElementBlock("div", _hoisted_20$C, [
-          createBaseVNode("span", _hoisted_21$w, toDisplayString$1(_ctx.$t("assets.dropHint")), 1)
+        unref(fileDragDepth) > 0 ? (openBlock(), createElementBlock("div", _hoisted_20$D, [
+          createBaseVNode("span", _hoisted_21$x, toDisplayString$1(_ctx.$t("assets.dropHint")), 1)
         ])) : createCommentVNode("", true),
         unref(settingsMenu) ? (openBlock(), createElementBlock("div", {
           key: 6,
@@ -62574,7 +62603,7 @@ const stage$1 = { "run": "Run", "rerun": "Re-run", "running": "Running…", "can
 const error$1 = { "dismiss": "Dismiss", "cancelled": "Cancelled", "upstreamNotReady": "Upstream not ready", "upstreamNotReadyDetail": "Upstream not ready: {list}. Run those stage(s) first so they produce a snapshot, then Run this stage again.", "droppedFromQueue": "Removed from the queue before it ran — the queue was cleared or the prompt was deleted.", "workerDied": "Backend stopped without sending a result. The prompt worker likely died (CUDA OOM during cleanup is the usual cause). Restart ComfyUI to recover." };
 const eagle$1 = { "title": "Eagle Library", "refresh": "Refresh", "search": "Search name or tags…", "loading": "Loading…", "empty": "No items", "loadMore": "Load more", "disabledHint": "Eagle integration is disabled. Turn on “Enable Eagle integration” in Settings and pin the ComfyTV .library path.", "pendingBanner": "{n} item(s) queued for Eagle (waiting for the pinned library to open)", "flushNow": "Send now", "flushing": "Sending…", "mode": { "api": "Online", "disk": "Read-only", "offline": "Offline", "disabled": "Disabled" }, "hint": { "disk": "Eagle is closed or has another library open: reading the library from disk (read-only). Sends are queued and flushed automatically once the pinned library opens.", "offline": "Eagle unreachable: the app is not running and the pinned library path does not exist. Check the library path in Settings." }, "folder": { "all": "All folders" }, "ai": { "label": "AI", "tooltip": "AI semantic search (needs Eagle's AI Search plugin): search by meaning, not by name" }, "similar": { "action": "Find similar", "banner": "Items similar to “{name}”", "clear": "Clear", "failed": "Similar search failed" }, "import": { "action": "Import into Assets", "done": "Imported “{name}”", "existed": "“{name}” is already in Assets", "failed": "Import failed" }, "send": { "action": "Send to Eagle", "sent": "Sent to Eagle: {name}", "queued": "Eagle not ready — queued ({n} pending)", "failed": "Send failed" }, "flush": { "done": "Flushed {n} item(s) to Eagle", "failed": "{n} item(s) failed to flush" } };
 const sidebar$1 = { "tab": { "workflow": "Workflow", "assets": "Assets", "eagle": "Eagle", "entries": "Entries", "params": "Stages", "presets": "Presets", "resources": "Resources", "servers": "Servers", "collab": "Collab", "settings": "Settings" } };
-const settings$1 = { "title": "Settings", "hint": "Defaults come from comfytv.properties in the ComfyTV directory. Values saved here are stored in the database and take precedence.", "loading": "Loading…", "save": "Save", "saving": "Saving…", "search": "Search settings…", "noMatch": "No settings match", "experimental": "Experimental", "reset": "Reset to default", "on": "On", "off": "Off", "status": { "checking": "Checking…", "online": "Connected", "offline": "Offline" }, "blender": { "section": "Blender bridge" }, "general": { "section": "General" }, "backup": { "section": "Database backup", "now": "Back up now", "running": "Backing up…", "ok": "Backup written to {path}", "failed": "Backup failed: {error}" }, "fields": { "enable-v2": { "label": "Enable ComfyTV V2 nodes", "desc": "EXPERIMENTAL — expect rough edges. Renders migrated stages with the new content-first V2 shells. Requires ComfyUI's own Node 2.0 (Vue nodes) setting to be enabled first. Refresh the page after changing." }, "v2-lod-scale": { "label": "Poster mode below zoom", "desc": "Below this canvas zoom, V2 cards collapse to a thumbnail with a play/open button; panels come back once you zoom in past it again.", "options": { "30": "30%", "42": "42%", "50": "50%", "60": "60%" } }, "v2-lod-fill": { "label": "Poster backdrop", "desc": "What fills the card around a letterboxed thumbnail: the checkerboard used by image previews, or a dimmed copy of the same picture stretched to fill.", "options": { "checker": "Checkerboard", "image": "Same picture, dimmed" } }, "auto-picker": { "label": "Auto-attach picker on run", "desc": "When an Image or Video stage runs with nothing connected to its output, add a Picker stage after it automatically." }, "enable-db-backup": { "label": "Automatic backup on startup", "desc": "Back up the ComfyTV data directory (database + workflows) every time the server starts, before any migration runs." }, "db-backup-max-count": { "label": "Max backups to keep", "desc": "When the number of snapshots exceeds this, the oldest ones are deleted." }, "db-backup-path": { "label": "Backup location", "desc": "Leave empty to use the db-backup folder inside the ComfyTV directory. Snapshots are timestamped folders like 20260805-093000/comfytv.", "placeholder": "e.g. D:\\backups\\comfytv" }, "enable-mcp": { "label": "Enable MCP server", "desc": "Expose the ComfyTV MCP endpoint (/comfytv/mcp) so agents can read and drive the canvas. Off by default." }, "enable-bot": { "label": "Enable ComfyTV Bot", "desc": "Show the embedded bot sidebar and its chat API. Requires the MCP server to be enabled." }, "bot-model-claude-code": { "label": "Claude Code model", "desc": "Model passed to claude --model for bot turns. Accepts an alias (sonnet, opus, haiku) or a full model id. Blank = the CLI's own default.", "placeholder": "CLI default" }, "bot-model-codex": { "label": "Codex model", "desc": "Model passed to codex -m for bot turns. Blank = the CLI's own default.", "placeholder": "CLI default" }, "bot-model-qwen-code": { "label": "Qwen Code model", "desc": "Model passed to qwen -m for bot turns. Blank = the model selected in qwen's own settings.", "placeholder": "CLI default" }, "bot-model-local-llm": { "label": "Local LLM model", "desc": "Model id on the local endpoint. Blank = the first model the endpoint reports.", "placeholder": "first available" }, "bot-model-comfyui-llm": { "label": "ComfyUI LLM model", "desc": "EXPERIMENTAL — a toy provider, not meant for real use; pick Local LLM or one of the CLI providers instead. Text-encoder checkpoint from models/text_encoders used for bot turns (Qwen3 or Gemma family). Blank = the first generation-capable checkpoint found. Runs inside ComfyUI itself — no external server needed.", "placeholder": "first available" }, "bot-comfyui-llm-thinking": { "label": "ComfyUI LLM thinking", "desc": "EXPERIMENTAL — only affects the toy ComfyUI LLM provider. Let Qwen3 models reason in a hidden <think> block before answering. Noticeably smarter tool use, at the cost of extra generation time per turn." }, "bot-local-llm-url": { "label": "Local LLM endpoint", "desc": "OpenAI-compatible base URL of a local model server (LM Studio, llama.cpp llama-server, vLLM, Ollama…). The Local LLM provider stays unavailable until this is set. Keyless local endpoints only — no API keys are ever stored.", "placeholder": "http://127.0.0.1:1234/v1" }, "bot-enable-comfy-mcp": { "label": "Mount comfy-mcp", "desc": "Also mount the official comfy-mcp server (read-only tool set: node catalog, workflow validation, model/template search) in bot sessions. Claude Code and Qwen Code only — Codex and Local LLM stay comfytv-only." }, "bot-comfy-mcp-command": { "label": "comfy-mcp command", "desc": "Command that launches the comfy-mcp stdio server. Blank = find comfy-mcp on PATH.", "placeholder": "comfy-mcp" }, "bot-always-allow-runs": { "label": "Always allow bot runs", "desc": "Run stages immediately without an approval card (the default). Disable this to let chats switched to Ask mode pause for your approval before each run." }, "enable-skills": { "label": "Enable Agent Skills", "desc": "Serve installed skills to agents over MCP (skill tool + prompts) and to the embedded bot." }, "enable-collab": { "label": "Enable collaboration", "desc": "EXPERIMENTAL — do not rely on this in production. Real-time multi-user presence and co-editing over the local network. When off, no collaboration code runs at all (no session, no websocket, no UI). Reload open pages after changing this." }, "enable-eagle": { "label": "Enable Eagle integration", "desc": "Connect the local Eagle (eagle.cool) library to ComfyTV: an Eagle panel appears in the sidebar and assets can be sent to Eagle. Requires the Eagle desktop app." }, "eagle-api-url": { "label": "Eagle API URL", "desc": "Address of Eagle's local API, default port 41595. Local access only, no token needed.", "placeholder": "http://127.0.0.1:41595" }, "eagle-library-path": { "label": "Pinned library path", "desc": "The .library directory dedicated to ComfyTV. Sends only happen while Eagle has this library open (queued otherwise); browsing falls back to reading the directory from disk. Empty = follow whatever library Eagle has open (not recommended).", "placeholder": "e.g. Y:\\Eagle\\ComfyTV.library" }, "eagle-send-folder": { "label": "Send target folder", "desc": "Eagle folder that manually sent items are filed into; created automatically if missing. Empty = library root. Auto-archive uses per-project folders instead." }, "eagle-auto-send": { "label": "Auto-archive outputs to Eagle", "desc": "Automatically archive every stage output (image/video/audio) into Eagle: filed into a per-project folder, annotation carries the full generation params (prompt/model/…), tagged with the project name. Uses the queue — piles up while Eagle is closed, never blocks generation." }, "blender-bridge-url": { "label": "Blender bridge URL", "desc": "EXPERIMENTAL — expect rough edges. Address of the blender-web bridge that the Blender Scene / Camera / Animation stages talk to. Start it with blender-for-comfytv.bat; the stages stay unavailable until it responds. Default port 7684, local only.", "placeholder": "http://127.0.0.1:7684" } }, "agent": { "section": "Agent & MCP" }, "eagle": { "section": "Eagle Integration" }, "collab": { "section": "Collaboration" } };
+const settings$1 = { "title": "Settings", "hint": "Defaults come from comfytv.properties in the ComfyTV directory. Values saved here are stored in the database and take precedence.", "modelRoutes": { "desktop-account": "Desktop account", "api-key": "API key" }, "loading": "Loading…", "save": "Save", "saving": "Saving…", "search": "Search settings…", "noMatch": "No settings match", "experimental": "Experimental", "reset": "Reset to default", "on": "On", "off": "Off", "status": { "checking": "Checking…", "online": "Connected", "offline": "Offline" }, "blender": { "section": "Blender bridge" }, "general": { "section": "General" }, "backup": { "section": "Database backup", "now": "Back up now", "running": "Backing up…", "ok": "Backup written to {path}", "failed": "Backup failed: {error}" }, "fields": { "enable-v2": { "label": "Enable ComfyTV V2 nodes", "desc": "EXPERIMENTAL — expect rough edges. Renders migrated stages with the new content-first V2 shells. Requires ComfyUI's own Node 2.0 (Vue nodes) setting to be enabled first. Refresh the page after changing." }, "v2-lod-scale": { "label": "Poster mode below zoom", "desc": "Below this canvas zoom, V2 cards collapse to a thumbnail with a play/open button; panels come back once you zoom in past it again.", "options": { "30": "30%", "42": "42%", "50": "50%", "60": "60%" } }, "v2-lod-fill": { "label": "Poster backdrop", "desc": "What fills the card around a letterboxed thumbnail: the checkerboard used by image previews, or a dimmed copy of the same picture stretched to fill.", "options": { "checker": "Checkerboard", "image": "Same picture, dimmed" } }, "auto-picker": { "label": "Auto-attach picker on run", "desc": "When an Image or Video stage runs with nothing connected to its output, add a Picker stage after it automatically." }, "enable-db-backup": { "label": "Automatic backup on startup", "desc": "Back up the ComfyTV data directory (database + workflows) every time the server starts, before any migration runs." }, "db-backup-max-count": { "label": "Max backups to keep", "desc": "When the number of snapshots exceeds this, the oldest ones are deleted." }, "db-backup-path": { "label": "Backup location", "desc": "Leave empty to use the db-backup folder inside the ComfyTV directory. Snapshots are timestamped folders like 20260805-093000/comfytv.", "placeholder": "e.g. D:\\backups\\comfytv" }, "enable-mcp": { "label": "Enable MCP server", "desc": "Expose the ComfyTV MCP endpoint (/comfytv/mcp) so agents can read and drive the canvas. Off by default." }, "enable-bot": { "label": "Enable ComfyTV Bot", "desc": "Show the embedded bot sidebar and its chat API. Requires the MCP server to be enabled." }, "bot-model-claude-code": { "label": "Claude Code model", "desc": "Model passed to claude --model for bot turns. Accepts an alias (sonnet, opus, haiku) or a full model id. Blank = the CLI's own default.", "placeholder": "CLI default" }, "bot-model-codex": { "label": "Codex model", "desc": "Model passed to codex -m for bot turns. Blank = the CLI's own default.", "placeholder": "CLI default" }, "bot-model-qwen-code": { "label": "Qwen Code model", "desc": "Model passed to qwen -m for bot turns. Blank = the model selected in qwen's own settings.", "placeholder": "CLI default" }, "bot-model-local-llm": { "label": "Local LLM model", "desc": "Model id on the local endpoint. Blank = the first model the endpoint reports.", "placeholder": "first available" }, "bot-model-comfyui-llm": { "label": "ComfyUI LLM model", "desc": "EXPERIMENTAL — a toy provider, not meant for real use; pick Local LLM or one of the CLI providers instead. Text-encoder checkpoint from models/text_encoders used for bot turns (Qwen3 or Gemma family). Blank = the first generation-capable checkpoint found. Runs inside ComfyUI itself — no external server needed.", "placeholder": "first available" }, "bot-comfyui-llm-thinking": { "label": "ComfyUI LLM thinking", "desc": "EXPERIMENTAL — only affects the toy ComfyUI LLM provider. Let Qwen3 models reason in a hidden <think> block before answering. Noticeably smarter tool use, at the cost of extra generation time per turn." }, "bot-local-llm-url": { "label": "Local LLM endpoint", "desc": "OpenAI-compatible base URL of a local model server (LM Studio, llama.cpp llama-server, vLLM, Ollama…). The Local LLM provider stays unavailable until this is set. Keyless local endpoints only — no API keys are ever stored.", "placeholder": "http://127.0.0.1:1234/v1" }, "bot-enable-comfy-mcp": { "label": "Mount comfy-mcp", "desc": "Also mount the official comfy-mcp server (read-only tool set: node catalog, workflow validation, model/template search) in bot sessions. Claude Code and Qwen Code only — Codex, DeepSeek Harness, Local LLM and ComfyUI LLM stay comfytv-only." }, "bot-comfy-mcp-command": { "label": "comfy-mcp command", "desc": "Command that launches the comfy-mcp stdio server. Blank = find comfy-mcp on PATH.", "placeholder": "comfy-mcp" }, "bot-always-allow-runs": { "label": "Always allow bot runs", "desc": "Run stages immediately without an approval card (the default). Disable this to let chats switched to Ask mode pause for your approval before each run." }, "bot-model-deepseek-harness": { "label": "DeepSeek Harness model", "desc": "Exact model route handed to the DeepSeek Harness runtime. Blank = the first model on the selected sign-in route, resolved from the runtime's own catalog. It never falls back to the other route.", "placeholder": "Runtime default" }, "bot-deepseek-harness-app-path": { "label": "DeepSeek Harness app", "desc": "Path to the installed DeepSeek Harness desktop app. Blank = look in /Applications, then ~/Applications.", "placeholder": "/Applications/DeepSeek Harness.app" }, "bot-deepseek-harness-auth-mode": { "label": "DeepSeek Harness sign-in", "desc": "Which route pays for DeepSeek Harness turns. Desktop account reuses the account you signed into the desktop app; API key uses the DEEPSEEK_API_KEY credential. The provider never switches routes on its own.", "options": { "desktop-account": "Desktop account", "api-key": "API key" } }, "enable-skills": { "label": "Enable Agent Skills", "desc": "Serve installed skills to agents over MCP (skill tool + prompts) and to the embedded bot." }, "enable-collab": { "label": "Enable collaboration", "desc": "EXPERIMENTAL — do not rely on this in production. Real-time multi-user presence and co-editing over the local network. When off, no collaboration code runs at all (no session, no websocket, no UI). Reload open pages after changing this." }, "enable-eagle": { "label": "Enable Eagle integration", "desc": "Connect the local Eagle (eagle.cool) library to ComfyTV: an Eagle panel appears in the sidebar and assets can be sent to Eagle. Requires the Eagle desktop app." }, "eagle-api-url": { "label": "Eagle API URL", "desc": "Address of Eagle's local API, default port 41595. Local access only, no token needed.", "placeholder": "http://127.0.0.1:41595" }, "eagle-library-path": { "label": "Pinned library path", "desc": "The .library directory dedicated to ComfyTV. Sends only happen while Eagle has this library open (queued otherwise); browsing falls back to reading the directory from disk. Empty = follow whatever library Eagle has open (not recommended).", "placeholder": "e.g. Y:\\Eagle\\ComfyTV.library" }, "eagle-send-folder": { "label": "Send target folder", "desc": "Eagle folder that manually sent items are filed into; created automatically if missing. Empty = library root. Auto-archive uses per-project folders instead." }, "eagle-auto-send": { "label": "Auto-archive outputs to Eagle", "desc": "Automatically archive every stage output (image/video/audio) into Eagle: filed into a per-project folder, annotation carries the full generation params (prompt/model/…), tagged with the project name. Uses the queue — piles up while Eagle is closed, never blocks generation." }, "blender-bridge-url": { "label": "Blender bridge URL", "desc": "EXPERIMENTAL — expect rough edges. Address of the blender-web bridge that the Blender Scene / Camera / Animation stages talk to. Start it with blender-for-comfytv.bat; the stages stay unavailable until it responds. Default port 7684, local only.", "placeholder": "http://127.0.0.1:7684" } }, "agent": { "section": "Agent & MCP" }, "eagle": { "section": "Eagle Integration" }, "collab": { "section": "Collaboration" } };
 const servers$1 = { "title": "ComfyUI Servers", "add": "Add", "addTooltip": "Register another ComfyUI instance on your network so stages can run on it", "empty": "No remote servers configured. Stages run on this machine. Add a server to unlock the per-stage server dropdown and run stages on several machines in parallel.", "edit": "Edit", "delete": "Delete", "deleteConfirm": 'Delete server "{label}"? Stages currently pointed at it will fall back to running locally.', "enable": "Enable", "disable": "Disable", "local": "Local (this machine)", "runOn": "Run on", "form": { "label": "Name", "labelPlaceholder": "e.g. GPU rig upstairs", "host": "Host / IP", "port": "Port", "create": "Add server", "save": "Save", "cancel": "Cancel", "saveFailed": "Save failed — is the name already in use?" }, "test": { "action": "Test connection", "testing": "Testing…", "ok": "Connected", "failed": "Connection failed" }, "job": { "started": "Running on {label}", "failed": "Remote run failed", "cancelled": "Remote run cancelled", "fallbackLocal": "Selected server is gone or disabled — this stage will run locally." }, "status": { "online": "Online", "offline": "Offline", "unknown": "Checking…", "idle": "Idle", "queueShort": "Q {n}", "queueDetail": "{running} running, {pending} pending", "fromComfyTV": "{n} from ComfyTV" }, "caps": { "badge": "ComfyTV v{version}", "comfyOnly": "ComfyUI only — ComfyTV not installed", "missingNodes": "{n} nodes missing", "missingTitle": "Nodes missing on this remote — upgrade its ComfyTV:" }, "preflight": { "blockedTitle": "Remote run blocked", "warnTitle": "Remote resource check", "runAnyway": "Run anyway", "noComfyTV": `Remote "{label}" doesn't have ComfyTV installed — install ComfyTV there or run locally.`, "missingNode": 'Remote "{label}" is missing node {node} — upgrade its ComfyTV.', "missingResource": 'Remote "{label}" is missing resource {file} — run anyway?', "resourceMismatch": 'Resource {file} has different content on remote "{label}" — run anyway?' } };
 const stageManager$1 = { "title": "Stage Manager", "refresh": "Refresh list", "import": "Import", "rescan": "Rescan", "rescanTooltip": "Scan the workflow library on disk (comfytv/workflows/ in the ComfyUI user directory) for new, changed, or removed files — no backend restart needed", "rescanFound": "Found {n} new workflow(s)", "rescanNone": "No new workflows found", "rescanNoneDetail": "Make sure the file is a .json inside comfytv/workflows/<kind>/ in the ComfyUI user directory (preset and .api.json sidecars don't count).", "rescanFailed": "Rescan failed", "setDefault": "Set as default", "unsetDefault": "Unset default", "defaultSet": "{label} is now the default workflow for this stage", "defaultCleared": "{label} is no longer the default — the first listed workflow is used", "defaultFailed": "Could not change the default workflow", "hide": "Hide from stage node", "unhide": "Show on stage node", "hiddenSet": "{label} is now hidden from the workflow dropdown on stage nodes", "hiddenCleared": "{label} is shown in the workflow dropdown again", "hiddenFailed": "Could not change workflow visibility", "section": { "workflows": "Workflows", "params": "Parameters" }, "emptyWorkflows": "No workflows registered for this stage yet — import one here, or drop a .json into comfytv/workflows/<kind>/ in the ComfyUI user directory and hit Rescan.", "hint": "Workflows listed here are picked from the workflow dropdown on the matching stage node on the canvas.", "badge": { "linked": "linked", "linkedHint": "Linked from ComfyUI's native workflow folder (not managed by ComfyTV)", "fileMissing": "file missing", "notGui": "not GUI format", "notGuiHint": "Missing a top-level nodes array — open it in ComfyUI and re-save normally, not with Save (API Format)", "noApi": "API not generated", "noApiHint": "The API prompt is generated automatically the first time this workflow runs — normal for a freshly imported workflow.", "new": "new", "newHint": "Discovered in the most recent scan (startup or rescan)", "builtin": "built-in", "builtinHint": "Ships with ComfyTV (tracked in git). Workflows without this badge were imported or dropped in by a user.", "default": "default", "defaultHint": "Newly added stage nodes of this kind start with this workflow selected. If it is deleted or unlinked, the first listed workflow is used instead.", "hidden": "hidden", "hiddenHint": "Not offered in the workflow dropdown on stage nodes. Nodes that already selected it keep working." } };
 const assets$1 = { "title": "Asset Library", "empty": "No assets yet — add images, video, or audio to reuse them across projects.", "emptyCategory": "No assets in this category yet.", "add": "Add media", "addTooltip": "Upload images, video, or audio into the library (or drag & drop them onto this panel)", "uploading": "Uploading {done}/{total}…", "uploadFailed": "Upload failed: {detail}", "dropHint": "Drop files to add them to the library", "search": "Search assets", "noResults": "No assets match your search.", "scanFolder": "Scan media folder", "scanFolderHint": "Drop large files into this folder — they are adopted on scan without uploading", "view": { "settings": "Display settings", "list": "List view", "grid": "Grid view" }, "media": { "all": "All types", "image": "Images", "video": "Video", "audio": "Audio", "model": "3D models", "text": "Text" }, "category": { "all": "All", "none": "Uncategorized", "new": "New category", "newPrompt": "New category name:", "rename": "Rename category", "renamePrompt": "Category name:", "delete": "Delete category", "deleteConfirm": "Delete this category? It is removed from all assets; the assets and files on disk stay." }, "card": { "rename": "Rename", "renamePrompt": "Asset name:", "delete": "Remove from library", "deleteConfirm": "Remove this asset from the library? The file on disk stays.", "tags": "Edit tags", "loadNode": "Add as node to canvas", "makeProxy": "Generate preview proxy", "more": "More options", "playPreview": "Play", "pausePreview": "Pause", "fileMissing": "File missing", "fileMissingHint": "The file on disk was deleted; the library entry remains — re-import it or remove the asset" }, "tagPopover": { "empty": "No categories yet.", "create": "New category" }, "select": { "enter": "Select assets (Ctrl+click also works)", "exit": "Exit selection", "all": "Select all shown", "missing": "Select only the shown assets whose file is missing ({count})", "count": "{count} selected", "tags": "Edit tags of selected", "loadNodes": "Add selected as nodes to canvas", "remove": "Remove selected from library", "removeConfirm": "Remove {count} assets from the library? The files on disk stay." } };
@@ -62758,7 +62787,7 @@ const stage = { "run": "运行", "rerun": "重新运行", "running": "运行中�
 const error = { "dismiss": "清除", "cancelled": "已取消", "upstreamNotReady": "上游未就绪", "upstreamNotReadyDetail": "上游未就绪:{list}。请先运行这些 stage 生成快照,然后再运行此 stage。", "droppedFromQueue": "尚未运行就被移出队列 — 队列被清空或该任务被删除。", "workerDied": "后端未返回结果就停止了。prompt worker 可能已崩溃(通常是清理阶段 CUDA OOM)。重启 ComfyUI 后恢复。" };
 const eagle = { "title": "Eagle 素材库", "refresh": "刷新", "search": "搜索名称或标签…", "loading": "加载中…", "empty": "没有条目", "loadMore": "加载更多", "disabledHint": "Eagle 集成未启用。到「设置」页打开「启用 Eagle 集成」,并钉死 ComfyTV 专用的 .library 路径。", "pendingBanner": "有 {n} 条待发送到 Eagle(等待打开钉死的库)", "flushNow": "立即补发", "flushing": "补发中…", "mode": { "api": "在线", "disk": "只读", "offline": "离线", "disabled": "未启用" }, "hint": { "disk": "Eagle 未运行或打开了别的库:正在直接读取磁盘上的库(只读)。发送会排队,等库打开后自动补发。", "offline": "找不到 Eagle:应用未运行,钉死的库路径也不可达。检查设置里的库路径。" }, "folder": { "all": "全部文件夹" }, "ai": { "label": "AI", "tooltip": "AI 语义搜索(需要 Eagle 的 AI Search 插件):按含义搜图而非按名称" }, "similar": { "action": "找相似", "banner": "与「{name}」相似的条目", "clear": "清除", "failed": "相似搜索失败" }, "import": { "action": "导入到资产库", "done": "已导入「{name}」", "existed": "「{name}」已在资产库", "failed": "导入失败" }, "send": { "action": "发送到 Eagle", "sent": "已发送到 Eagle:{name}", "queued": "Eagle 未就绪,已排队({n} 条待发)", "failed": "发送失败" }, "flush": { "done": "已补发 {n} 条到 Eagle", "failed": "{n} 条补发失败" } };
 const sidebar = { "tab": { "workflow": "工作流", "assets": "资产库", "eagle": "Eagle", "entries": "条目", "params": "Stage 管理", "presets": "预设", "resources": "资源", "servers": "服务器", "collab": "协作", "settings": "设置" } };
-const settings = { "title": "设置", "hint": "默认值来自 ComfyTV 目录下的 comfytv.properties。此处保存的值写入数据库,并优先生效。", "loading": "加载中…", "save": "保存", "saving": "保存中…", "search": "搜索设置…", "noMatch": "没有匹配的设置项", "experimental": "实验性", "reset": "恢复默认", "on": "开", "off": "关", "status": { "checking": "检测中…", "online": "已连接", "offline": "未连接" }, "blender": { "section": "Blender 桥接" }, "general": { "section": "通用" }, "backup": { "section": "数据库备份", "now": "立即备份", "running": "备份中…", "ok": "备份已写入 {path}", "failed": "备份失败:{error}" }, "fields": { "enable-v2": { "label": "启用 ComfyTV V2 节点", "desc": "实验性功能，可能存在不稳定行为。已迁移的 stage 以内容导向的 V2 外壳渲染。必须先在 ComfyUI 本体设置中开启 Node 2.0（Vue 节点模式）。修改后需刷新页面。" }, "v2-lod-scale": { "label": "海报图模式阈值", "desc": "画布缩放低于此值时，V2 卡片收起为缩略图并显示播放/放大按钮；放大越过阈值后面板恢复。", "options": { "30": "30%", "42": "42%", "50": "50%", "60": "60%" } }, "v2-lod-fill": { "label": "海报图底", "desc": "缩略图留白部分用什么填充：图片预览同款棋盘格，或同一张画面压暗后铺满整卡。", "options": { "checker": "棋盘格", "image": "同图压暗铺满" } }, "auto-picker": { "label": "运行时自动接挑选节点", "desc": "Image 或 Video stage 运行时，如果输出端还没有连线，自动在后面接一个 Picker stage。" }, "enable-db-backup": { "label": "启动时自动备份", "desc": "每次服务器启动时(在任何迁移执行之前)备份 ComfyTV 数据目录(数据库 + 工作流)。" }, "db-backup-max-count": { "label": "最大备份数量", "desc": "快照数量超过该值时,自动删除最旧的备份。" }, "db-backup-path": { "label": "备份位置", "desc": "留空则使用 ComfyTV 目录下的 db-backup 文件夹。快照以时间戳命名,如 20260805-093000/comfytv。", "placeholder": "如 D:\\backups\\comfytv" }, "enable-mcp": { "label": "启用 MCP 服务", "desc": "开放 ComfyTV 的 MCP 端点(/comfytv/mcp),允许 agent 读取并操作画布。默认关闭。" }, "enable-bot": { "label": "启用 ComfyTV Bot", "desc": "显示内嵌 Bot 侧边栏及其聊天接口。前置条件:先启用 MCP 服务。" }, "bot-model-claude-code": { "label": "Claude Code 模型", "desc": "Bot 回合传给 claude --model 的模型,支持别名(sonnet、opus、haiku)或完整模型 id。留空 = CLI 自己的默认。", "placeholder": "CLI 默认" }, "bot-model-codex": { "label": "Codex 模型", "desc": "Bot 回合传给 codex -m 的模型。留空 = CLI 自己的默认。", "placeholder": "CLI 默认" }, "bot-model-qwen-code": { "label": "Qwen Code 模型", "desc": "Bot 回合传给 qwen -m 的模型。留空 = 用 qwen 自己设置里选的模型。", "placeholder": "CLI 默认" }, "bot-model-local-llm": { "label": "Local LLM 模型", "desc": "本地端点上的模型 id。留空 = 用端点报告的第一个模型。", "placeholder": "自动取第一个" }, "bot-model-comfyui-llm": { "label": "ComfyUI LLM 模型", "desc": "实验性 — 玩具性质的 provider,一般情况不要用,请改用 Local LLM 或 CLI 类 provider。Bot 回合使用的 models/text_encoders 里的文本编码器权重(Qwen3 或 Gemma 系)。留空 = 自动取第一个可生成的权重。推理跑在 ComfyUI 本体内 — 无需外部服务。", "placeholder": "自动取第一个" }, "bot-comfyui-llm-thinking": { "label": "ComfyUI LLM 思考模式", "desc": "实验性 — 只对玩具性质的 ComfyUI LLM provider 生效。让 Qwen3 系模型先在隐藏的 <think> 块里推理再回答。工具调用明显更聪明,代价是每轮多花一些生成时间。" }, "bot-local-llm-url": { "label": "Local LLM 端点", "desc": "本地模型服务的 OpenAI 兼容 base URL(LM Studio、llama.cpp 的 llama-server、vLLM、Ollama 等)。不填时 Local LLM provider 不可用。仅限免 key 的本地端点 — 永远不存 API key。", "placeholder": "http://127.0.0.1:1234/v1" }, "bot-enable-comfy-mcp": { "label": "挂载 comfy-mcp", "desc": "在 bot 会话中同时挂载官方 comfy-mcp(只读工具集:节点目录、工作流校验、模型/模板搜索)。仅 Claude Code 和 Qwen Code — Codex 与 Local LLM 保持只挂 comfytv。" }, "bot-comfy-mcp-command": { "label": "comfy-mcp 命令", "desc": "启动 comfy-mcp stdio 服务的命令。留空 = 在 PATH 上找 comfy-mcp。", "placeholder": "comfy-mcp" }, "bot-always-allow-runs": { "label": "总是允许 bot 运行", "desc": "不弹运行审批卡,bot 直接执行(默认行为)。关闭后,切到询问模式的会话才会在每次运行前等你批准。" }, "enable-skills": { "label": "启用 Agent Skills", "desc": "把已安装的技能通过 MCP(skill 工具 + prompts)提供给外部 agent 和内嵌 bot。" }, "enable-collab": { "label": "启用多人协作", "desc": "实验性功能——请勿在生产环境依赖。局域网内的实时多人 presence 与共同编辑。关闭时协作代码完全不运行（无会话、无 WebSocket、无 UI）。修改后需刷新已打开的页面。" }, "enable-eagle": { "label": "启用 Eagle 集成", "desc": "把本机的 Eagle(eagle.cool)素材库接入 ComfyTV:侧边栏出现 Eagle 面板,资产可发送到 Eagle。需要 Eagle 桌面应用。" }, "eagle-api-url": { "label": "Eagle API 地址", "desc": "Eagle 本地 API 的地址,默认端口 41595。仅本机访问,不需要 token。", "placeholder": "http://127.0.0.1:41595" }, "eagle-library-path": { "label": "钉死的资源库路径", "desc": "ComfyTV 专用的 .library 目录。发送只在 Eagle 打开该库时进行(否则排队),浏览在 Eagle 关闭或切到别的库时直接读磁盘。留空 = 跟随 Eagle 当前打开的库(不推荐)。", "placeholder": "如 Y:\\Eagle资源库\\ComfyTV资源库.library" }, "eagle-send-folder": { "label": "发送目标文件夹", "desc": "手动发送到 Eagle 时归入的文件夹名,不存在会自动创建。留空 = 库根目录。自动沉淀按项目名分文件夹,不走此设置。" }, "eagle-auto-send": { "label": "产出自动沉淀到 Eagle", "desc": "每个 stage 的产出(图片/视频/音频)自动归档进 Eagle:按项目名分文件夹,annotation 带完整生成参数(prompt/模型等),tag 带项目名。走排队机制,Eagle 没开时攒着,不阻塞生成。" }, "blender-bridge-url": { "label": "Blender 桥接地址", "desc": "实验性 — 会有毛边。Blender Scene / Camera / Animation 这几个 stage 连接的 blender-web 桥接服务地址。用 blender-for-comfytv.bat 启动;桥接没响应时这些 stage 不可用。默认端口 7684,仅限本机。", "placeholder": "http://127.0.0.1:7684" } }, "agent": { "section": "Agent 与 MCP" }, "eagle": { "section": "Eagle 集成" }, "collab": { "section": "多人协作" } };
+const settings = { "title": "设置", "hint": "默认值来自 ComfyTV 目录下的 comfytv.properties。此处保存的值写入数据库,并优先生效。", "modelRoutes": { "desktop-account": "桌面账号", "api-key": "API Key" }, "loading": "加载中…", "save": "保存", "saving": "保存中…", "search": "搜索设置…", "noMatch": "没有匹配的设置项", "experimental": "实验性", "reset": "恢复默认", "on": "开", "off": "关", "status": { "checking": "检测中…", "online": "已连接", "offline": "未连接" }, "blender": { "section": "Blender 桥接" }, "general": { "section": "通用" }, "backup": { "section": "数据库备份", "now": "立即备份", "running": "备份中…", "ok": "备份已写入 {path}", "failed": "备份失败:{error}" }, "fields": { "enable-v2": { "label": "启用 ComfyTV V2 节点", "desc": "实验性功能，可能存在不稳定行为。已迁移的 stage 以内容导向的 V2 外壳渲染。必须先在 ComfyUI 本体设置中开启 Node 2.0（Vue 节点模式）。修改后需刷新页面。" }, "v2-lod-scale": { "label": "海报图模式阈值", "desc": "画布缩放低于此值时，V2 卡片收起为缩略图并显示播放/放大按钮；放大越过阈值后面板恢复。", "options": { "30": "30%", "42": "42%", "50": "50%", "60": "60%" } }, "v2-lod-fill": { "label": "海报图底", "desc": "缩略图留白部分用什么填充：图片预览同款棋盘格，或同一张画面压暗后铺满整卡。", "options": { "checker": "棋盘格", "image": "同图压暗铺满" } }, "auto-picker": { "label": "运行时自动接挑选节点", "desc": "Image 或 Video stage 运行时，如果输出端还没有连线，自动在后面接一个 Picker stage。" }, "enable-db-backup": { "label": "启动时自动备份", "desc": "每次服务器启动时(在任何迁移执行之前)备份 ComfyTV 数据目录(数据库 + 工作流)。" }, "db-backup-max-count": { "label": "最大备份数量", "desc": "快照数量超过该值时,自动删除最旧的备份。" }, "db-backup-path": { "label": "备份位置", "desc": "留空则使用 ComfyTV 目录下的 db-backup 文件夹。快照以时间戳命名,如 20260805-093000/comfytv。", "placeholder": "如 D:\\backups\\comfytv" }, "enable-mcp": { "label": "启用 MCP 服务", "desc": "开放 ComfyTV 的 MCP 端点(/comfytv/mcp),允许 agent 读取并操作画布。默认关闭。" }, "enable-bot": { "label": "启用 ComfyTV Bot", "desc": "显示内嵌 Bot 侧边栏及其聊天接口。前置条件:先启用 MCP 服务。" }, "bot-model-claude-code": { "label": "Claude Code 模型", "desc": "Bot 回合传给 claude --model 的模型,支持别名(sonnet、opus、haiku)或完整模型 id。留空 = CLI 自己的默认。", "placeholder": "CLI 默认" }, "bot-model-codex": { "label": "Codex 模型", "desc": "Bot 回合传给 codex -m 的模型。留空 = CLI 自己的默认。", "placeholder": "CLI 默认" }, "bot-model-qwen-code": { "label": "Qwen Code 模型", "desc": "Bot 回合传给 qwen -m 的模型。留空 = 用 qwen 自己设置里选的模型。", "placeholder": "CLI 默认" }, "bot-model-local-llm": { "label": "Local LLM 模型", "desc": "本地端点上的模型 id。留空 = 用端点报告的第一个模型。", "placeholder": "自动取第一个" }, "bot-model-comfyui-llm": { "label": "ComfyUI LLM 模型", "desc": "实验性 — 玩具性质的 provider,一般情况不要用,请改用 Local LLM 或 CLI 类 provider。Bot 回合使用的 models/text_encoders 里的文本编码器权重(Qwen3 或 Gemma 系)。留空 = 自动取第一个可生成的权重。推理跑在 ComfyUI 本体内 — 无需外部服务。", "placeholder": "自动取第一个" }, "bot-comfyui-llm-thinking": { "label": "ComfyUI LLM 思考模式", "desc": "实验性 — 只对玩具性质的 ComfyUI LLM provider 生效。让 Qwen3 系模型先在隐藏的 <think> 块里推理再回答。工具调用明显更聪明,代价是每轮多花一些生成时间。" }, "bot-local-llm-url": { "label": "Local LLM 端点", "desc": "本地模型服务的 OpenAI 兼容 base URL(LM Studio、llama.cpp 的 llama-server、vLLM、Ollama 等)。不填时 Local LLM provider 不可用。仅限免 key 的本地端点 — 永远不存 API key。", "placeholder": "http://127.0.0.1:1234/v1" }, "bot-enable-comfy-mcp": { "label": "挂载 comfy-mcp", "desc": "在 bot 会话中同时挂载官方 comfy-mcp(只读工具集:节点目录、工作流校验、模型/模板搜索)。仅 Claude Code 和 Qwen Code — Codex、DeepSeek Harness、Local LLM 与 ComfyUI LLM 保持只挂 comfytv。" }, "bot-comfy-mcp-command": { "label": "comfy-mcp 命令", "desc": "启动 comfy-mcp stdio 服务的命令。留空 = 在 PATH 上找 comfy-mcp。", "placeholder": "comfy-mcp" }, "bot-always-allow-runs": { "label": "总是允许 bot 运行", "desc": "不弹运行审批卡,bot 直接执行(默认行为)。关闭后,切到询问模式的会话才会在每次运行前等你批准。" }, "bot-model-deepseek-harness": { "label": "DeepSeek Harness 模型", "desc": "交给 DeepSeek Harness 运行时的精确模型路由。留空 = 取所选登录方式下运行时候选清单里的第一个。不会自动改用另一种登录方式。", "placeholder": "运行时默认" }, "bot-deepseek-harness-app-path": { "label": "DeepSeek Harness 应用路径", "desc": "已安装的 DeepSeek Harness 桌面应用路径。留空 = 依次查找 /Applications 与 ~/Applications。", "placeholder": "/Applications/DeepSeek Harness.app" }, "bot-deepseek-harness-auth-mode": { "label": "DeepSeek Harness 登录方式", "desc": "DeepSeek Harness 回合由哪条路由计费。桌面账号复用你在桌面应用里登录的账号；API Key 使用 DEEPSEEK_API_KEY 凭据。该 provider 不会自行切换路由。", "options": { "desktop-account": "桌面账号", "api-key": "API Key" } }, "enable-skills": { "label": "启用 Agent Skills", "desc": "把已安装的技能通过 MCP(skill 工具 + prompts)提供给外部 agent 和内嵌 bot。" }, "enable-collab": { "label": "启用多人协作", "desc": "实验性功能——请勿在生产环境依赖。局域网内的实时多人 presence 与共同编辑。关闭时协作代码完全不运行（无会话、无 WebSocket、无 UI）。修改后需刷新已打开的页面。" }, "enable-eagle": { "label": "启用 Eagle 集成", "desc": "把本机的 Eagle(eagle.cool)素材库接入 ComfyTV:侧边栏出现 Eagle 面板,资产可发送到 Eagle。需要 Eagle 桌面应用。" }, "eagle-api-url": { "label": "Eagle API 地址", "desc": "Eagle 本地 API 的地址,默认端口 41595。仅本机访问,不需要 token。", "placeholder": "http://127.0.0.1:41595" }, "eagle-library-path": { "label": "钉死的资源库路径", "desc": "ComfyTV 专用的 .library 目录。发送只在 Eagle 打开该库时进行(否则排队),浏览在 Eagle 关闭或切到别的库时直接读磁盘。留空 = 跟随 Eagle 当前打开的库(不推荐)。", "placeholder": "如 Y:\\Eagle资源库\\ComfyTV资源库.library" }, "eagle-send-folder": { "label": "发送目标文件夹", "desc": "手动发送到 Eagle 时归入的文件夹名,不存在会自动创建。留空 = 库根目录。自动沉淀按项目名分文件夹,不走此设置。" }, "eagle-auto-send": { "label": "产出自动沉淀到 Eagle", "desc": "每个 stage 的产出(图片/视频/音频)自动归档进 Eagle:按项目名分文件夹,annotation 带完整生成参数(prompt/模型等),tag 带项目名。走排队机制,Eagle 没开时攒着,不阻塞生成。" }, "blender-bridge-url": { "label": "Blender 桥接地址", "desc": "实验性 — 会有毛边。Blender Scene / Camera / Animation 这几个 stage 连接的 blender-web 桥接服务地址。用 blender-for-comfytv.bat 启动;桥接没响应时这些 stage 不可用。默认端口 7684,仅限本机。", "placeholder": "http://127.0.0.1:7684" } }, "agent": { "section": "Agent 与 MCP" }, "eagle": { "section": "Eagle 集成" }, "collab": { "section": "多人协作" } };
 const servers = { "title": "ComfyUI 服务器", "add": "添加", "addTooltip": "登记局域网内的其他 ComfyUI 实例,让 stage 可以在它上面运行", "empty": "还没有配置远程服务器,所有 stage 都在本机运行。添加服务器后,每个 stage 会出现服务器下拉框,可多机并行运行。", "edit": "编辑", "delete": "删除", "deleteConfirm": "删除服务器「{label}」?指向它的 stage 会回退到本机运行。", "enable": "启用", "disable": "停用", "local": "本机 (Local)", "runOn": "运行于", "form": { "label": "名称", "labelPlaceholder": "例如:楼上那台 4090", "host": "主机 / IP", "port": "端口", "create": "添加服务器", "save": "保存", "cancel": "取消", "saveFailed": "保存失败——名称是不是重复了?" }, "test": { "action": "测试连接", "testing": "测试中…", "ok": "连接成功", "failed": "连接失败" }, "job": { "started": "正在 {label} 上运行", "failed": "远程运行失败", "cancelled": "远程运行已取消", "fallbackLocal": "所选服务器已删除或停用——这个 stage 将在本机运行。" }, "status": { "online": "在线", "offline": "离线", "unknown": "检测中…", "idle": "空闲", "queueShort": "队列 {n}", "queueDetail": "{running} 运行中,{pending} 排队", "fromComfyTV": "其中 {n} 来自 ComfyTV" }, "caps": { "badge": "ComfyTV v{version}", "comfyOnly": "仅 ComfyUI（未装 ComfyTV）", "missingNodes": "缺 {n} 个节点", "missingTitle": "远端缺少的节点——请升级远端 ComfyTV：" }, "preflight": { "blockedTitle": "远程运行被拦截", "warnTitle": "远端资源检查", "runAnyway": "仍要运行", "noComfyTV": "远端「{label}」未安装 ComfyTV——请先在远端安装，或改为本机运行。", "missingNode": "远端「{label}」缺少节点 {node}——请升级远端 ComfyTV。", "missingResource": "远端「{label}」缺少资源 {file}，仍要运行吗？", "resourceMismatch": "资源 {file} 在远端「{label}」上内容不一致，仍要运行吗？" } };
 const stageManager = { "title": "Stage 管理", "refresh": "刷新列表", "import": "导入", "rescan": "重新扫描", "rescanTooltip": "扫描磁盘上的工作流库（ComfyUI user 目录下的 comfytv/workflows/），发现新增、变更或删除的文件 —— 无需重启后端", "rescanFound": "发现 {n} 个新工作流", "rescanNone": "没有发现新工作流", "rescanNoneDetail": "请确认文件是 .json 且放在 ComfyUI user 目录下的 comfytv/workflows/对应类别目录中（preset 和 .api.json 附属文件不算）。", "rescanFailed": "重新扫描失败", "setDefault": "设为默认", "unsetDefault": "取消默认", "defaultSet": "{label} 已设为该 Stage 的默认工作流", "defaultCleared": "{label} 已取消默认 —— 将使用列表中的第一个工作流", "defaultFailed": "修改默认工作流失败", "hide": "从 Stage 节点隐藏", "unhide": "在 Stage 节点显示", "hiddenSet": "{label} 已从 Stage 节点的 workflow 下拉框隐藏", "hiddenCleared": "{label} 已重新显示在 workflow 下拉框中", "hiddenFailed": "修改工作流可见性失败", "section": { "workflows": "工作流", "params": "参数" }, "emptyWorkflows": "该 Stage 下还没有已注册的工作流 —— 点「导入」上传，或把 .json 放入 ComfyUI user 目录下的 comfytv/workflows/对应类别目录后点「重新扫描」。", "hint": "这里列出的工作流，在画布上对应 Stage 节点的 workflow 下拉框中选用。", "badge": { "linked": "外链", "linkedHint": "链接自 ComfyUI 原生工作流目录（不由 ComfyTV 管理）", "fileMissing": "文件丢失", "notGui": "非 GUI 格式", "notGuiHint": "缺少顶层 nodes 数组 —— 在 ComfyUI 中打开后用普通「保存」重新导出，不要用「保存（API 格式）」", "noApi": "API 未生成", "noApiHint": "首次运行该工作流时会自动生成 API prompt，新导入的工作流出现此标记属于正常。", "new": "新", "newHint": "最近一次扫描（启动或重新扫描）新发现的工作流", "builtin": "内置", "builtinHint": "ComfyTV 自带的工作流（git 跟踪）。没有此标记的是用户导入或手动放入的。", "default": "默认", "defaultHint": "新添加的该类 Stage 节点会预选此工作流。若它被删除或取消链接，则回退到列表中的第一个。", "hidden": "已隐藏", "hiddenHint": "不出现在 Stage 节点的 workflow 下拉框中。已选中它的节点不受影响，仍可正常运行。" } };
 const assets = { "title": "资产库", "empty": "还没有资产 —— 添加图片、视频或音频后可跨项目复用。", "emptyCategory": "这个分类下还没有资产。", "add": "添加素材", "addTooltip": "上传图片、视频或音频到资产库（也可以直接拖拽文件到这个面板）", "uploading": "上传中 {done}/{total}…", "uploadFailed": "上传失败: {detail}", "dropHint": "松开把文件添加到资产库", "search": "搜索资产", "noResults": "没有匹配的资产。", "scanFolder": "扫描素材文件夹", "scanFolderHint": "大文件直接放进这个文件夹,扫描时自动收录,无需上传", "view": { "settings": "显示设置", "list": "列表视图", "grid": "网格视图" }, "media": { "all": "全部类型", "image": "图片", "video": "视频", "audio": "音频", "model": "3D 模型", "text": "文本" }, "category": { "all": "全部", "none": "未分类", "new": "新建分类", "newPrompt": "新分类名称：", "rename": "重命名分类", "renamePrompt": "分类名称：", "delete": "删除分类", "deleteConfirm": "删除这个分类？它会从所有资产上移除；资产和磁盘上的文件保留。" }, "card": { "rename": "重命名", "renamePrompt": "资产名称：", "delete": "从资产库移除", "deleteConfirm": "把这个资产从资产库移除？磁盘上的文件保留。", "tags": "编辑标签", "loadNode": "作为节点添加到画布", "makeProxy": "生成预览代理", "more": "更多操作", "playPreview": "试听", "pausePreview": "暂停", "fileMissing": "文件缺失", "fileMissingHint": "本地文件已被删除，资产条目仍保留；可重新导入或从资产库移除" }, "tagPopover": { "empty": "还没有分类。", "create": "新建分类" }, "select": { "enter": "多选资产（Ctrl+点击也可以）", "exit": "退出多选", "all": "全选当前显示", "missing": "只勾选当前显示中文件缺失的（{count} 个）", "count": "已选 {count} 个", "tags": "编辑所选的标签", "loadNodes": "把所选作为节点添加到画布", "remove": "从资产库移除所选", "removeConfirm": "把这 {count} 个资产从资产库移除？磁盘上的文件保留。" } };
@@ -62941,7 +62970,7 @@ const g$1 = { "agentModified": "Agent updated this workflow", "agentWorking": "A
 const mediaAsset$1 = { "selection": { "downloadsStarted": "Started downloading {count} file | Started downloading {count} files" } };
 const progressToast$1 = { "downloadsFailed": "{count} download failed | {count} downloads failed" };
 const shareWorkflow$1 = { "saveFailedDescription": "Failed to save workflow. Please try again.", "saveFailedTitle": "Save failed" };
-const agentBar$1 = { "provider": "Provider", "model": "Model", "defaultModel": "default model", "unavailable": "unavailable", "openSettings": "ComfyTV settings", "ready": "ready", "apply": "Apply", "loading": "loading…", "entry": "ComfyTV Bot" };
+const agentBar$1 = { "provider": "Provider", "model": "Model", "defaultModel": "default model", "unavailable": "unavailable", "openSettings": "ComfyTV settings", "ready": "ready", "apply": "Apply", "loading": "loading…", "routeAccount": "account", "routeApiKey": "API key", "entry": "ComfyTV Bot" };
 const agentEn = {
   agent: agent$2,
   errorCatalog: errorCatalog$1,
@@ -62959,7 +62988,7 @@ const g = { "agentModified": "智能体已更新此工作流", "agentWorking": "
 const mediaAsset = { "selection": { "downloadsStarted": "开始下载 {count} 个文件" } };
 const progressToast = { "downloadsFailed": "{count} 个下载失败" };
 const shareWorkflow = { "saveFailedDescription": "保存工作流失败。请重试。", "saveFailedTitle": "保存失败" };
-const agentBar = { "provider": "服务提供方", "model": "模型", "defaultModel": "默认模型", "unavailable": "不可用", "openSettings": "ComfyTV 设置", "ready": "就绪", "apply": "应用", "loading": "加载中…", "entry": "ComfyTV Bot" };
+const agentBar = { "provider": "服务提供方", "model": "模型", "defaultModel": "默认模型", "unavailable": "不可用", "openSettings": "ComfyTV 设置", "ready": "就绪", "apply": "应用", "loading": "加载中…", "routeAccount": "桌面账号", "routeApiKey": "API Key", "entry": "ComfyTV Bot" };
 const agentZh = {
   agent: agent$1,
   errorCatalog,
@@ -64427,11 +64456,11 @@ const _hoisted_3$46 = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
 const _hoisted_4$3C = ["title"];
 const _hoisted_5$3p = { class: "ctv:font-medium" };
 const _hoisted_6$38 = { class: "ctv:opacity-60" };
-const _hoisted_7$2A = {
+const _hoisted_7$2B = {
   key: 2,
   class: "ctv:ml-auto ctv:py-px ctv:px-1.5 ctv:rounded-lg ctv:bg-success-background/25 ctv:text-2xs ctv:font-semibold"
 };
-const _hoisted_8$29 = {
+const _hoisted_8$2a = {
   key: 0,
   class: "ctv:flex ctv:flex-col ctv:gap-1.5"
 };
@@ -64455,15 +64484,15 @@ const _hoisted_14$17 = {
 };
 const _hoisted_15$_ = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
 const _hoisted_16$U = { class: "ctv:font-medium ctv:truncate" };
-const _hoisted_17$O = {
+const _hoisted_17$P = {
   key: 0,
   class: "ctv:opacity-60 ctv:truncate ctv:ml-auto"
 };
-const _hoisted_18$J = {
+const _hoisted_18$K = {
   key: 0,
   class: "ctv:mt-0.5 ctv:opacity-70 ctv:truncate"
 };
-const _hoisted_19$H = {
+const _hoisted_19$I = {
   key: 0,
   class: "ctv:opacity-60"
 };
@@ -64554,9 +64583,9 @@ const _sfc_main$4E = /* @__PURE__ */ defineComponent({
               createBaseVNode("span", _hoisted_5$3p, toDisplayString$1(unref(store2).selfName), 1),
               createBaseVNode("span", _hoisted_6$38, "(" + toDisplayString$1(_ctx.$t("collab.you")) + ")", 1)
             ], 8, _hoisted_4$3C)),
-            unref(store2).coEditing ? (openBlock(), createElementBlock("span", _hoisted_7$2A, toDisplayString$1(_ctx.$t("collab.coEditing")), 1)) : createCommentVNode("", true)
+            unref(store2).coEditing ? (openBlock(), createElementBlock("span", _hoisted_7$2B, toDisplayString$1(_ctx.$t("collab.coEditing")), 1)) : createCommentVNode("", true)
           ]),
-          unref(store2).peerList.length ? (openBlock(), createElementBlock("div", _hoisted_8$29, [
+          unref(store2).peerList.length ? (openBlock(), createElementBlock("div", _hoisted_8$2a, [
             (openBlock(true), createElementBlock(Fragment$1, null, renderList(unref(store2).peerList, (p2) => {
               return openBlock(), createElementBlock("div", {
                 key: p2.connId,
@@ -64594,12 +64623,12 @@ const _sfc_main$4E = /* @__PURE__ */ defineComponent({
                     class: normalizeClass(["ctv:size-2 ctv:rounded-full ctv:shrink-0", statusClass(stage2)])
                   }, null, 2),
                   createBaseVNode("span", _hoisted_16$U, toDisplayString$1(stage2.title || shortClass(stage2)), 1),
-                  stage2.workflow ? (openBlock(), createElementBlock("span", _hoisted_17$O, toDisplayString$1(stage2.workflow), 1)) : createCommentVNode("", true)
+                  stage2.workflow ? (openBlock(), createElementBlock("span", _hoisted_17$P, toDisplayString$1(stage2.workflow), 1)) : createCommentVNode("", true)
                 ]),
-                stage2.prompt ? (openBlock(), createElementBlock("div", _hoisted_18$J, toDisplayString$1(stage2.prompt), 1)) : createCommentVNode("", true)
+                stage2.prompt ? (openBlock(), createElementBlock("div", _hoisted_18$K, toDisplayString$1(stage2.prompt), 1)) : createCommentVNode("", true)
               ]);
             }), 128)),
-            !canvas.value.stages.length ? (openBlock(), createElementBlock("div", _hoisted_19$H, toDisplayString$1(_ctx.$t("collab.emptyCanvas")), 1)) : createCommentVNode("", true)
+            !canvas.value.stages.length ? (openBlock(), createElementBlock("div", _hoisted_19$I, toDisplayString$1(_ctx.$t("collab.emptyCanvas")), 1)) : createCommentVNode("", true)
           ])) : createCommentVNode("", true)
         ], 64))
       ]);
@@ -64875,8 +64904,8 @@ const _hoisted_6$37 = {
   key: 0,
   class: "ctv:flex-1 ctv:min-h-0 ctv:overflow-y-auto ctv:p-3"
 };
-const _hoisted_7$2z = { class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60 ctv:leading-relaxed" };
-const _hoisted_8$28 = {
+const _hoisted_7$2A = { class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60 ctv:leading-relaxed" };
+const _hoisted_8$29 = {
   key: 0,
   class: "ctv:shrink-0 ctv:flex ctv:items-center ctv:gap-2 ctv:my-1.5 ctv:mx-2.5 ctv:py-1.5 ctv:px-2 ctv:rounded ctv:bg-amber-500/10 ctv:border ctv:border-amber-500/40 ctv:text-amber-500"
 };
@@ -64891,14 +64920,14 @@ const _hoisted_13$1e = { class: "ctv:relative ctv:flex-1 ctv:min-w-0" };
 const _hoisted_14$16 = ["placeholder"];
 const _hoisted_15$Z = ["title"];
 const _hoisted_16$T = { value: "" };
-const _hoisted_17$N = ["value"];
-const _hoisted_18$I = {
+const _hoisted_17$O = ["value"];
+const _hoisted_18$J = {
   key: 2,
   class: "ctv:shrink-0 ctv:flex ctv:items-center ctv:gap-2 ctv:my-1.5 ctv:mx-2.5 ctv:py-1 ctv:px-2 ctv:rounded ctv:bg-secondary-background ctv:border ctv:border-border-subtle ctv:text-muted-foreground"
 };
-const _hoisted_19$G = { class: "ctv:flex-1 ctv:truncate" };
-const _hoisted_20$B = { class: "ctv:shrink-0 ctv:flex ctv:flex-wrap ctv:items-center ctv:gap-1 ctv:py-1.5 ctv:px-2.5 ctv:border-b ctv:border-border-subtle" };
-const _hoisted_21$v = ["onClick"];
+const _hoisted_19$H = { class: "ctv:flex-1 ctv:truncate" };
+const _hoisted_20$C = { class: "ctv:shrink-0 ctv:flex ctv:flex-wrap ctv:items-center ctv:gap-1 ctv:py-1.5 ctv:px-2.5 ctv:border-b ctv:border-border-subtle" };
+const _hoisted_21$w = ["onClick"];
 const _hoisted_22$s = {
   key: 3,
   class: "ctv:shrink-0 ctv:my-1.5 ctv:mx-2.5 ctv:py-1.5 ctv:px-2 ctv:text-xs ctv:rounded ctv:break-all ctv:bg-destructive-background/15 ctv:border ctv:border-destructive-background/50 ctv:text-destructive-background"
@@ -65066,9 +65095,9 @@ const _sfc_main$4D = /* @__PURE__ */ defineComponent({
           ], 10, _hoisted_5$3o)
         ]),
         !unref(enabled2) ? (openBlock(), createElementBlock("div", _hoisted_6$37, [
-          createBaseVNode("div", _hoisted_7$2z, toDisplayString$1(_ctx.$t("eagle.disabledHint")), 1)
+          createBaseVNode("div", _hoisted_7$2A, toDisplayString$1(_ctx.$t("eagle.disabledHint")), 1)
         ])) : (openBlock(), createElementBlock(Fragment$1, { key: 1 }, [
-          unref(pendingCount) > 0 ? (openBlock(), createElementBlock("div", _hoisted_8$28, [
+          unref(pendingCount) > 0 ? (openBlock(), createElementBlock("div", _hoisted_8$29, [
             createBaseVNode("span", _hoisted_9$1Y, toDisplayString$1(_ctx.$t("eagle.pendingBanner", { n: unref(pendingCount) })), 1),
             createBaseVNode("button", {
               class: normalizeClass(unref(chipBtnClass2)),
@@ -65107,28 +65136,28 @@ const _sfc_main$4D = /* @__PURE__ */ defineComponent({
                 return openBlock(), createElementBlock("option", {
                   key: f2.id,
                   value: f2.id
-                }, toDisplayString$1(`${" ".repeat(f2.depth * 2)}${f2.name}`), 9, _hoisted_17$N);
+                }, toDisplayString$1(`${" ".repeat(f2.depth * 2)}${f2.name}`), 9, _hoisted_17$O);
               }), 128))
             ], 512), [
               [vModelSelect, unref(folder)]
             ])
           ]),
-          unref(similarTo) ? (openBlock(), createElementBlock("div", _hoisted_18$I, [
+          unref(similarTo) ? (openBlock(), createElementBlock("div", _hoisted_18$J, [
             createVNode(unref(IconSparkles), { class: "ctv:size-3.5 ctv:shrink-0" }),
-            createBaseVNode("span", _hoisted_19$G, toDisplayString$1(_ctx.$t("eagle.similar.banner", { name: unref(similarTo).name })), 1),
+            createBaseVNode("span", _hoisted_19$H, toDisplayString$1(_ctx.$t("eagle.similar.banner", { name: unref(similarTo).name })), 1),
             createBaseVNode("button", {
               class: normalizeClass(unref(chipBtnClass2)),
               onClick: _cache2[5] || (_cache2[5] = //@ts-ignore
               (...args) => unref(clearSimilar) && unref(clearSimilar)(...args))
             }, toDisplayString$1(_ctx.$t("eagle.similar.clear")), 3)
           ])) : createCommentVNode("", true),
-          createBaseVNode("div", _hoisted_20$B, [
+          createBaseVNode("div", _hoisted_20$C, [
             (openBlock(), createElementBlock(Fragment$1, null, renderList(MEDIA_FILTERS, (m) => {
               return createBaseVNode("button", {
                 key: m || "all",
                 class: normalizeClass(chipClass2(unref(mediaType) === m)),
                 onClick: ($event) => mediaType.value = m
-              }, toDisplayString$1(m ? _ctx.$t(`assets.media.${m}`) : _ctx.$t("assets.media.all")), 11, _hoisted_21$v);
+              }, toDisplayString$1(m ? _ctx.$t(`assets.media.${m}`) : _ctx.$t("assets.media.all")), 11, _hoisted_21$w);
             }), 64))
           ]),
           unref(error2) ? (openBlock(), createElementBlock("div", _hoisted_22$s, toDisplayString$1(unref(error2)), 1)) : createCommentVNode("", true),
@@ -66030,8 +66059,8 @@ const _hoisted_6$36 = {
   key: 0,
   class: "ctv:shrink-0 ctv:flex ctv:items-center ctv:gap-2 ctv:my-1.5 ctv:mx-2.5 ctv:py-1.5 ctv:px-2 ctv:text-xs ctv:rounded ctv:bg-secondary-background ctv:border ctv:border-border-subtle"
 };
-const _hoisted_7$2y = { class: "ctv:flex-1" };
-const _hoisted_8$27 = {
+const _hoisted_7$2z = { class: "ctv:flex-1" };
+const _hoisted_8$28 = {
   key: 1,
   class: "ctv:shrink-0 ctv:m-0 ctv:py-1.5 ctv:px-2.5 ctv:text-[11px] ctv:text-muted-foreground ctv:border-b ctv:border-border-subtle"
 };
@@ -66049,14 +66078,14 @@ const _hoisted_13$1d = { class: "comfytv-entries-scroll ctv:flex-1 ctv:min-h-0 c
 const _hoisted_14$15 = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
 const _hoisted_15$Y = ["onUpdate:modelValue", "onBlur", "onKeydown"];
 const _hoisted_16$S = ["title", "onClick"];
-const _hoisted_17$M = ["onUpdate:modelValue", "onBlur", "onKeydown"];
-const _hoisted_18$H = {
+const _hoisted_17$N = ["onUpdate:modelValue", "onBlur", "onKeydown"];
+const _hoisted_18$I = {
   key: 0,
   class: "ctv:text-2xs ctv:text-destructive-background"
 };
-const _hoisted_19$F = { class: "ctv:text-2xs ctv:text-muted-foreground" };
-const _hoisted_20$A = ["onUpdate:modelValue", "placeholder", "onBlur"];
-const _hoisted_21$u = ["onUpdate:modelValue", "placeholder", "onBlur"];
+const _hoisted_19$G = { class: "ctv:text-2xs ctv:text-muted-foreground" };
+const _hoisted_20$B = ["onUpdate:modelValue", "placeholder", "onBlur"];
+const _hoisted_21$v = ["onUpdate:modelValue", "placeholder", "onBlur"];
 const _hoisted_22$r = {
   key: 0,
   class: "ctv:m-0 ctv:p-4 ctv:text-center ctv:italic ctv:text-muted-foreground"
@@ -66179,7 +66208,7 @@ const _sfc_main$4C = /* @__PURE__ */ defineComponent({
           }, null, 544)
         ]),
         unref(ioStatus) ? (openBlock(), createElementBlock("div", _hoisted_6$36, [
-          createBaseVNode("span", _hoisted_7$2y, toDisplayString$1(unref(ioStatus)), 1),
+          createBaseVNode("span", _hoisted_7$2z, toDisplayString$1(unref(ioStatus)), 1),
           createBaseVNode("button", {
             class: "ctv:inline-flex ctv:bg-transparent ctv:border-none ctv:cursor-pointer ctv:text-inherit ctv:opacity-70 ctv:hover:opacity-100",
             onClick: _cache2[2] || (_cache2[2] = ($event) => ioStatus.value = "")
@@ -66187,7 +66216,7 @@ const _sfc_main$4C = /* @__PURE__ */ defineComponent({
             createBaseVNode("i", { class: "pi pi-times ctv:text-2xs" }, null, -1)
           ])])
         ])) : createCommentVNode("", true),
-        activeKind.value !== "prompt" ? (openBlock(), createElementBlock("p", _hoisted_8$27, [
+        activeKind.value !== "prompt" ? (openBlock(), createElementBlock("p", _hoisted_8$28, [
           createTextVNode(toDisplayString$1(_ctx.$t("entries.refHelpPre")) + " ", 1),
           _cache2[15] || (_cache2[15] = createBaseVNode("code", { class: "ctv:py-0 ctv:px-1 ctv:rounded-sm ctv:font-mono ctv:bg-primary-background/20 ctv:border ctv:border-primary-background/45 ctv:text-primary-background" }, "@label", -1)),
           createTextVNode(" " + toDisplayString$1(_ctx.$t("entries.refHelpPost")), 1)
@@ -66243,16 +66272,16 @@ const _sfc_main$4C = /* @__PURE__ */ defineComponent({
                   withKeys(withModifiers(($event) => unref(saveIfDirty)(entry2), ["ctrl", "prevent"]), ["enter"]),
                   withKeys(withModifiers(($event) => unref(saveIfDirty)(entry2), ["meta", "prevent"]), ["enter"])
                 ]
-              }, null, 42, _hoisted_17$M), [
+              }, null, 42, _hoisted_17$N), [
                 [vModelText, unref(drafts)[entry2.id].content]
               ]),
-              unref(entryContentError)(entry2.kind, unref(drafts)[entry2.id].content) ? (openBlock(), createElementBlock("span", _hoisted_18$H, toDisplayString$1(unref(entryContentError)(entry2.kind, unref(drafts)[entry2.id].content)), 1)) : createCommentVNode("", true),
+              unref(entryContentError)(entry2.kind, unref(drafts)[entry2.id].content) ? (openBlock(), createElementBlock("span", _hoisted_18$I, toDisplayString$1(unref(entryContentError)(entry2.kind, unref(drafts)[entry2.id].content)), 1)) : createCommentVNode("", true),
               (openBlock(true), createElementBlock(Fragment$1, null, renderList(metaFields.value, (f2) => {
                 return openBlock(), createElementBlock("label", {
                   key: f2.name,
                   class: "ctv:flex ctv:flex-col ctv:gap-0.5"
                 }, [
-                  createBaseVNode("span", _hoisted_19$F, toDisplayString$1(f2.label), 1),
+                  createBaseVNode("span", _hoisted_19$G, toDisplayString$1(f2.label), 1),
                   f2.type === "textarea" ? withDirectives((openBlock(), createElementBlock("textarea", {
                     key: 0,
                     "onUpdate:modelValue": ($event) => unref(drafts)[entry2.id].metadata[f2.name] = $event,
@@ -66260,7 +66289,7 @@ const _sfc_main$4C = /* @__PURE__ */ defineComponent({
                     rows: "2",
                     placeholder: f2.placeholder ?? "",
                     onBlur: ($event) => unref(saveIfDirty)(entry2)
-                  }, null, 42, _hoisted_20$A)), [
+                  }, null, 42, _hoisted_20$B)), [
                     [vModelText, unref(drafts)[entry2.id].metadata[f2.name]]
                   ]) : withDirectives((openBlock(), createElementBlock("input", {
                     key: 1,
@@ -66268,7 +66297,7 @@ const _sfc_main$4C = /* @__PURE__ */ defineComponent({
                     class: normalizeClass(inputClass2()),
                     placeholder: f2.placeholder ?? "",
                     onBlur: ($event) => unref(saveIfDirty)(entry2)
-                  }, null, 42, _hoisted_21$u)), [
+                  }, null, 42, _hoisted_21$v)), [
                     [vModelText, unref(drafts)[entry2.id].metadata[f2.name]]
                   ])
                 ]);
@@ -67426,8 +67455,8 @@ const _hoisted_5$3m = {
   class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60"
 };
 const _hoisted_6$35 = ["aria-expanded", "onClick"];
-const _hoisted_7$2x = { class: "ctv:flex-1 ctv:text-left ctv:truncate" };
-const _hoisted_8$26 = { class: "ctv:text-2xs ctv:tabular-nums ctv:text-muted-foreground" };
+const _hoisted_7$2y = { class: "ctv:flex-1 ctv:text-left ctv:truncate" };
+const _hoisted_8$27 = { class: "ctv:text-2xs ctv:tabular-nums ctv:text-muted-foreground" };
 const _hoisted_9$1W = { class: "ctv:mt-1.5 ctv:flex ctv:flex-col ctv:gap-1" };
 const _hoisted_10$1H = { class: "ctv:flex-1 ctv:min-w-0 ctv:truncate ctv:font-semibold" };
 const _hoisted_11$1w = ["title"];
@@ -67462,8 +67491,8 @@ const _sfc_main$4B = /* @__PURE__ */ defineComponent({
                 createBaseVNode("i", {
                   class: normalizeClass(["pi", unref(isCollapsed)(group.kind) ? "pi-chevron-right" : "pi-chevron-down", "ctv:w-2.5 ctv:text-2xs ctv:text-muted-foreground"])
                 }, null, 2),
-                createBaseVNode("span", _hoisted_7$2x, toDisplayString$1(group.label), 1),
-                createBaseVNode("span", _hoisted_8$26, toDisplayString$1(group.presets.length), 1)
+                createBaseVNode("span", _hoisted_7$2y, toDisplayString$1(group.label), 1),
+                createBaseVNode("span", _hoisted_8$27, toDisplayString$1(group.presets.length), 1)
               ], 8, _hoisted_6$35),
               withDirectives(createBaseVNode("div", _hoisted_9$1W, [
                 (openBlock(true), createElementBlock(Fragment$1, null, renderList(group.presets, (p2) => {
@@ -67630,8 +67659,8 @@ const _hoisted_3$42 = { class: "ctv:flex-1 ctv:font-semibold ctv:text-sm" };
 const _hoisted_4$3y = { class: "ctv:flex-1 ctv:min-h-0 ctv:overflow-y-auto ctv:p-2.5 ctv:flex ctv:flex-col ctv:gap-2.5" };
 const _hoisted_5$3l = { class: "ctv:flex ctv:items-center ctv:gap-1" };
 const _hoisted_6$34 = ["aria-expanded", "onClick"];
-const _hoisted_7$2w = { class: "ctv:flex-1 ctv:text-left ctv:truncate" };
-const _hoisted_8$25 = { class: "ctv:text-2xs ctv:tabular-nums ctv:text-muted-foreground" };
+const _hoisted_7$2x = { class: "ctv:flex-1 ctv:text-left ctv:truncate" };
+const _hoisted_8$26 = { class: "ctv:text-2xs ctv:tabular-nums ctv:text-muted-foreground" };
 const _hoisted_9$1V = ["title", "onClick"];
 const _hoisted_10$1G = ["accept", "onChange"];
 const _hoisted_11$1v = { class: "ctv:mt-1.5 ctv:flex ctv:flex-col ctv:gap-1" };
@@ -67649,7 +67678,7 @@ const _hoisted_15$X = {
   class: "ctv:shrink-0 ctv:text-2xs ctv:tabular-nums ctv:text-muted-foreground"
 };
 const _hoisted_16$R = ["title", "onClick"];
-const _hoisted_17$L = ["title", "onClick"];
+const _hoisted_17$M = ["title", "onClick"];
 const sectionToggle$1 = "ctv:flex ctv:items-center ctv:gap-1.5 ctv:flex-1 ctv:min-w-0 ctv:py-1 ctv:px-0 ctv:cursor-pointer ctv:[font-family:inherit] ctv:bg-transparent ctv:border-none ctv:text-inherit ctv:text-2xs ctv:uppercase ctv:tracking-wide ctv:font-semibold ctv:text-muted-foreground ctv:hover:text-base-foreground";
 const iconBtnClass$6 = "ctv:inline-flex ctv:items-center ctv:justify-center ctv:cursor-pointer ctv:shrink-0 ctv:rounded-md ctv:border-none ctv:bg-transparent ctv:p-1 ctv:text-muted-foreground ctv:hover:bg-secondary-background-hover ctv:hover:text-base-foreground ctv:disabled:opacity-50 ctv:disabled:pointer-events-none";
 const _sfc_main$4A = /* @__PURE__ */ defineComponent({
@@ -67684,8 +67713,8 @@ const _sfc_main$4A = /* @__PURE__ */ defineComponent({
                   createBaseVNode("i", {
                     class: normalizeClass(["pi", unref(isCollapsed)(group.kind) ? "pi-chevron-right" : "pi-chevron-down", "ctv:w-2.5 ctv:text-2xs ctv:text-muted-foreground"])
                   }, null, 2),
-                  createBaseVNode("span", _hoisted_7$2w, toDisplayString$1(group.label), 1),
-                  createBaseVNode("span", _hoisted_8$25, toDisplayString$1(group.resources.length), 1)
+                  createBaseVNode("span", _hoisted_7$2x, toDisplayString$1(group.label), 1),
+                  createBaseVNode("span", _hoisted_8$26, toDisplayString$1(group.resources.length), 1)
                 ], 8, _hoisted_6$34),
                 createBaseVNode("button", {
                   class: normalizeClass(iconBtnClass$6),
@@ -67731,7 +67760,7 @@ const _sfc_main$4A = /* @__PURE__ */ defineComponent({
                       onClick: ($event) => unref(onRemove)(r2)
                     }, [
                       createVNode(unref(IconTrash), { class: "ctv:size-3.5" })
-                    ], 10, _hoisted_17$L)
+                    ], 10, _hoisted_17$M)
                   ]);
                 }), 128))
               ], 512), [
@@ -68279,8 +68308,8 @@ const _hoisted_6$33 = {
   key: 0,
   class: "ctv:flex ctv:flex-col ctv:gap-1.5 ctv:p-2 ctv:rounded-lg ctv:bg-secondary-background ctv:border ctv:border-border-default"
 };
-const _hoisted_7$2v = { class: "ctv:flex ctv:flex-col ctv:gap-0.5" };
-const _hoisted_8$24 = { class: "ctv:text-muted-foreground" };
+const _hoisted_7$2w = { class: "ctv:flex ctv:flex-col ctv:gap-0.5" };
+const _hoisted_8$25 = { class: "ctv:text-muted-foreground" };
 const _hoisted_9$1U = { class: "ctv:flex ctv:gap-1.5" };
 const _hoisted_10$1F = { class: "ctv:flex-1 ctv:flex ctv:flex-col ctv:gap-0.5 ctv:min-w-0" };
 const _hoisted_11$1u = { class: "ctv:text-muted-foreground" };
@@ -68289,17 +68318,17 @@ const _hoisted_13$1a = { class: "ctv:text-muted-foreground" };
 const _hoisted_14$13 = { class: "ctv:opacity-75" };
 const _hoisted_15$W = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
 const _hoisted_16$Q = ["disabled"];
-const _hoisted_17$K = ["disabled"];
-const _hoisted_18$G = {
+const _hoisted_17$L = ["disabled"];
+const _hoisted_18$H = {
   key: 2,
   class: "ctv:text-destructive-background"
 };
-const _hoisted_19$E = {
+const _hoisted_19$F = {
   key: 1,
   class: "ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60"
 };
-const _hoisted_20$z = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
-const _hoisted_21$t = { class: "ctv:flex-1 ctv:min-w-0" };
+const _hoisted_20$A = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
+const _hoisted_21$u = { class: "ctv:flex-1 ctv:min-w-0" };
 const _hoisted_22$q = { class: "ctv:font-semibold ctv:truncate" };
 const _hoisted_23$p = { class: "ctv:text-muted-foreground ctv:truncate" };
 const _hoisted_24$n = ["title"];
@@ -68374,8 +68403,8 @@ const _sfc_main$4y = /* @__PURE__ */ defineComponent({
         ]),
         createBaseVNode("div", _hoisted_5$3k, [
           unref(form) ? (openBlock(), createElementBlock("div", _hoisted_6$33, [
-            createBaseVNode("label", _hoisted_7$2v, [
-              createBaseVNode("span", _hoisted_8$24, toDisplayString$1(_ctx.$t("servers.form.label")), 1),
+            createBaseVNode("label", _hoisted_7$2w, [
+              createBaseVNode("span", _hoisted_8$25, toDisplayString$1(_ctx.$t("servers.form.label")), 1),
               createVNode(_sfc_main$4z, {
                 modelValue: unref(form).label,
                 "onUpdate:modelValue": _cache2[1] || (_cache2[1] = ($event) => unref(form).label = $event),
@@ -68433,19 +68462,19 @@ const _sfc_main$4y = /* @__PURE__ */ defineComponent({
                 disabled: !unref(formValid) || unref(saving),
                 onClick: _cache2[6] || (_cache2[6] = //@ts-ignore
                 (...args) => unref(onSave) && unref(onSave)(...args))
-              }, toDisplayString$1(unref(form).id == null ? _ctx.$t("servers.form.create") : _ctx.$t("servers.form.save")), 11, _hoisted_17$K)
+              }, toDisplayString$1(unref(form).id == null ? _ctx.$t("servers.form.create") : _ctx.$t("servers.form.save")), 11, _hoisted_17$L)
             ]),
-            unref(formError) ? (openBlock(), createElementBlock("div", _hoisted_18$G, toDisplayString$1(unref(formError)), 1)) : createCommentVNode("", true)
+            unref(formError) ? (openBlock(), createElementBlock("div", _hoisted_18$H, toDisplayString$1(unref(formError)), 1)) : createCommentVNode("", true)
           ])) : createCommentVNode("", true),
-          unref(store2).servers.length === 0 && !unref(form) ? (openBlock(), createElementBlock("div", _hoisted_19$E, toDisplayString$1(_ctx.$t("servers.empty")), 1)) : createCommentVNode("", true),
+          unref(store2).servers.length === 0 && !unref(form) ? (openBlock(), createElementBlock("div", _hoisted_19$F, toDisplayString$1(_ctx.$t("servers.empty")), 1)) : createCommentVNode("", true),
           (openBlock(true), createElementBlock(Fragment$1, null, renderList(unref(store2).servers, (server) => {
             var _a2;
             return openBlock(), createElementBlock("div", {
               key: server.id,
               class: normalizeClass(["ctv:flex ctv:flex-col ctv:gap-1 ctv:py-1.5 ctv:px-2 ctv:rounded-lg ctv:bg-secondary-background ctv:border ctv:border-border-subtle", { "ctv:opacity-50": !server.enabled }])
             }, [
-              createBaseVNode("div", _hoisted_20$z, [
-                createBaseVNode("div", _hoisted_21$t, [
+              createBaseVNode("div", _hoisted_20$A, [
+                createBaseVNode("div", _hoisted_21$u, [
                   createBaseVNode("div", _hoisted_22$q, toDisplayString$1(server.label), 1),
                   createBaseVNode("div", _hoisted_23$p, [
                     createTextVNode(toDisplayString$1(server.host) + ":" + toDisplayString$1(server.port) + " ", 1),
@@ -79425,7 +79454,12 @@ const _hoisted_5$3i = {
   key: 0,
   class: "ctv:flex ctv:flex-wrap ctv:gap-1"
 };
-const _hoisted_6$31 = ["onClick"];
+const _hoisted_6$31 = ["title", "onClick"];
+const _hoisted_7$2v = { class: "ctv:font-sans" };
+const _hoisted_8$24 = {
+  key: 0,
+  class: "ctv:ml-1 ctv:font-sans ctv:text-muted-foreground/70"
+};
 const chipClass$3 = "ctv:shrink-0 ctv:rounded ctv:px-1 ctv:py-px ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:bg-amber-400/15 ctv:text-amber-400";
 const iconBtnClass$4 = "ctv:inline-flex ctv:items-center ctv:justify-center ctv:cursor-pointer ctv:shrink-0 ctv:rounded ctv:border-none ctv:bg-transparent ctv:p-0.5 ctv:text-muted-foreground/70 ctv:hover:bg-secondary-background-hover ctv:hover:text-base-foreground";
 const suggestionBtnClass = "ctv:inline-flex ctv:items-center ctv:cursor-pointer ctv:[font-family:inherit] ctv:rounded-full ctv:border ctv:border-solid ctv:border-border-subtle ctv:bg-transparent ctv:px-2 ctv:py-0.5 ctv:text-2xs ctv:font-mono ctv:text-muted-foreground ctv:hover:bg-secondary-background-hover ctv:hover:text-base-foreground";
@@ -79448,6 +79482,16 @@ const _sfc_main$4u = /* @__PURE__ */ defineComponent({
       const k2 = `settings.fields.${props.row.key}.placeholder`;
       return te2(k2) ? t2(k2) : "";
     });
+    const ROUTE_KEYS = {
+      "deepseek-account": "settings.modelRoutes.desktop-account",
+      "deepseek-official": "settings.modelRoutes.api-key"
+    };
+    function routeHint(group) {
+      if (!group) return "";
+      const key = ROUTE_KEYS[group];
+      if (!key) return group;
+      return te2(key) ? t2(key) : group;
+    }
     return (_ctx, _cache2) => {
       return openBlock(), createElementBlock("div", {
         class: "ctv:flex ctv:flex-col ctv:gap-1 ctv:pr-2 ctv:py-1",
@@ -79536,10 +79580,14 @@ const _sfc_main$4u = /* @__PURE__ */ defineComponent({
         __props.suggestions.length ? (openBlock(), createElementBlock("div", _hoisted_5$3i, [
           (openBlock(true), createElementBlock(Fragment$1, null, renderList(__props.suggestions, (m) => {
             return openBlock(), createElementBlock("button", {
-              key: m,
-              class: normalizeClass([suggestionBtnClass, __props.value === m ? "ctv:border-node-component-border" : ""]),
-              onClick: ($event) => emit2("update", m)
-            }, toDisplayString$1(m), 11, _hoisted_6$31);
+              key: m.value,
+              class: normalizeClass([suggestionBtnClass, __props.value === m.value ? "ctv:border-node-component-border" : ""]),
+              title: m.value,
+              onClick: ($event) => emit2("update", m.value)
+            }, [
+              createBaseVNode("span", _hoisted_7$2v, toDisplayString$1(m.label), 1),
+              routeHint(m.group) ? (openBlock(), createElementBlock("span", _hoisted_8$24, toDisplayString$1(routeHint(m.group)), 1)) : createCommentVNode("", true)
+            ], 10, _hoisted_6$31);
           }), 128))
         ])) : createCommentVNode("", true)
       ], 4);
@@ -79733,11 +79781,11 @@ const _hoisted_13$19 = { class: "ctv:flex ctv:items-center ctv:gap-1.5" };
 const _hoisted_14$12 = { class: "ctv:font-semibold ctv:truncate" };
 const _hoisted_15$V = { class: "ctv:shrink-0 ctv:rounded ctv:px-1 ctv:py-0.5 ctv:text-2xs ctv:bg-interface-menu-component-surface-hovered ctv:text-muted-foreground" };
 const _hoisted_16$P = ["title"];
-const _hoisted_17$J = ["title", "onClick"];
-const _hoisted_18$F = { class: "ctv:flex-1 ctv:min-w-0" };
-const _hoisted_19$D = { class: "ctv:font-semibold ctv:truncate" };
-const _hoisted_20$y = { class: "ctv:text-destructive-background ctv:leading-relaxed ctv:break-all" };
-const _hoisted_21$s = ["title", "onClick"];
+const _hoisted_17$K = ["title", "onClick"];
+const _hoisted_18$G = { class: "ctv:flex-1 ctv:min-w-0" };
+const _hoisted_19$E = { class: "ctv:font-semibold ctv:truncate" };
+const _hoisted_20$z = { class: "ctv:text-destructive-background ctv:leading-relaxed ctv:break-all" };
+const _hoisted_21$t = ["title", "onClick"];
 const headBtnClass = "ctv:flex-1 ctv:min-w-0 ctv:flex ctv:items-center ctv:gap-1.5 ctv:py-0 ctv:px-0 ctv:cursor-pointer ctv:[font-family:inherit] ctv:bg-transparent ctv:border-none ctv:text-inherit ctv:text-left ctv:text-2xs ctv:uppercase ctv:tracking-wide ctv:font-semibold ctv:text-muted-foreground ctv:hover:text-base-foreground";
 const iconBtnClass$3 = "ctv:inline-flex ctv:items-center ctv:justify-center ctv:cursor-pointer ctv:shrink-0 ctv:rounded-md ctv:border-none ctv:bg-transparent ctv:p-1 ctv:text-muted-foreground ctv:hover:bg-secondary-background-hover ctv:hover:text-base-foreground ctv:disabled:opacity-50 ctv:disabled:pointer-events-none";
 const _sfc_main$4s = /* @__PURE__ */ defineComponent({
@@ -79826,7 +79874,7 @@ const _sfc_main$4s = /* @__PURE__ */ defineComponent({
                   onClick: ($event) => unref(onRemove)(skill)
                 }, [
                   createVNode(unref(IconTrash), { class: "ctv:size-3.5" })
-                ], 10, _hoisted_17$J)) : createCommentVNode("", true),
+                ], 10, _hoisted_17$K)) : createCommentVNode("", true),
                 createVNode(_sfc_main$4v, {
                   "model-value": skill.enabled,
                   "onUpdate:modelValue": (v) => unref(onToggle)(skill, v)
@@ -79839,9 +79887,9 @@ const _sfc_main$4s = /* @__PURE__ */ defineComponent({
               key: skill.name,
               class: "ctv:flex ctv:items-center ctv:gap-2 ctv:py-1.5 ctv:px-2 ctv:rounded-lg ctv:bg-interface-panel-surface ctv:border ctv:border-border-subtle ctv:opacity-60"
             }, [
-              createBaseVNode("div", _hoisted_18$F, [
-                createBaseVNode("div", _hoisted_19$D, toDisplayString$1(skill.name), 1),
-                createBaseVNode("div", _hoisted_20$y, toDisplayString$1(skill.error), 1)
+              createBaseVNode("div", _hoisted_18$G, [
+                createBaseVNode("div", _hoisted_19$E, toDisplayString$1(skill.name), 1),
+                createBaseVNode("div", _hoisted_20$z, toDisplayString$1(skill.error), 1)
               ]),
               skill.source === "user" ? (openBlock(), createElementBlock("button", {
                 key: 0,
@@ -79850,7 +79898,7 @@ const _sfc_main$4s = /* @__PURE__ */ defineComponent({
                 onClick: ($event) => unref(onRemove)(skill)
               }, [
                 createVNode(unref(IconTrash), { class: "ctv:size-3.5" })
-              ], 10, _hoisted_21$s)) : createCommentVNode("", true)
+              ], 10, _hoisted_21$t)) : createCommentVNode("", true)
             ]);
           }), 128))
         ], 512), [
@@ -80545,11 +80593,11 @@ const _hoisted_16$O = {
   key: 0,
   class: "ctv:w-20 ctv:shrink-0"
 };
-const _hoisted_17$I = { class: "ctv:w-24 ctv:shrink-0" };
-const _hoisted_18$E = ["disabled", "title"];
-const _hoisted_19$C = ["title"];
-const _hoisted_20$x = ["accept"];
-const _hoisted_21$r = { class: "comfytv-asset-scroll ctv:h-[224px] ctv:shrink-0 ctv:overflow-y-scroll" };
+const _hoisted_17$J = { class: "ctv:w-24 ctv:shrink-0" };
+const _hoisted_18$F = ["disabled", "title"];
+const _hoisted_19$D = ["title"];
+const _hoisted_20$y = ["accept"];
+const _hoisted_21$s = { class: "comfytv-asset-scroll ctv:h-[224px] ctv:shrink-0 ctv:overflow-y-scroll" };
 const _hoisted_22$p = {
   key: 0,
   class: "ctv:py-4 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-muted-foreground/60"
@@ -80785,7 +80833,7 @@ const _sfc_main$4q = /* @__PURE__ */ defineComponent({
               "onUpdate:modelValue": unref(setTypeFilter)
             }, null, 8, ["model-value", "options", "onUpdate:modelValue"])
           ])) : createCommentVNode("", true),
-          createBaseVNode("div", _hoisted_17$I, [
+          createBaseVNode("div", _hoisted_17$J, [
             createVNode(_sfc_main$4w, {
               "model-value": unref(filterValue),
               options: unref(categoryOptions),
@@ -80803,7 +80851,7 @@ const _sfc_main$4q = /* @__PURE__ */ defineComponent({
             })
           }, [
             createVNode(unref(IconUpload), { class: "ctv:size-3.5" })
-          ], 8, _hoisted_18$E),
+          ], 8, _hoisted_18$F),
           !hasBatch.value ? (openBlock(), createElementBlock("button", {
             key: 1,
             type: "button",
@@ -80812,7 +80860,7 @@ const _sfc_main$4q = /* @__PURE__ */ defineComponent({
             onClick: _cache2[5] || (_cache2[5] = ($event) => _ctx.$emit("close"))
           }, [..._cache2[18] || (_cache2[18] = [
             createBaseVNode("i", { class: "pi pi-times" }, null, -1)
-          ])], 10, _hoisted_19$C)) : createCommentVNode("", true),
+          ])], 10, _hoisted_19$D)) : createCommentVNode("", true),
           createBaseVNode("input", {
             ref_key: "fileInput",
             ref: fileInput,
@@ -80821,11 +80869,11 @@ const _sfc_main$4q = /* @__PURE__ */ defineComponent({
             multiple: "",
             class: "ctv:hidden",
             onChange: onPickFiles
-          }, null, 40, _hoisted_20$x)
+          }, null, 40, _hoisted_20$y)
         ], 512), [
           [vShow, !hasBatch.value || tab.value === "library"]
         ]),
-        withDirectives(createBaseVNode("div", _hoisted_21$r, [
+        withDirectives(createBaseVNode("div", _hoisted_21$s, [
           unref(filtered).length === 0 ? (openBlock(), createElementBlock("div", _hoisted_22$p, toDisplayString$1(_ctx.$t("promptAssets.empty")), 1)) : (openBlock(), createElementBlock("div", _hoisted_23$o, [
             (openBlock(true), createElementBlock(Fragment$1, null, renderList(unref(filtered), (asset) => {
               return openBlock(), createElementBlock("button", {
@@ -80939,20 +80987,20 @@ const _hoisted_13$17 = {
 const _hoisted_14$10 = ["title", "disabled", "onClick"];
 const _hoisted_15$T = ["src"];
 const _hoisted_16$N = { class: "ctv:absolute ctv:top-0.5 ctv:left-0.5 ctv:px-1 ctv:rounded ctv:text-3xs ctv:uppercase ctv:bg-black/50 ctv:text-white/80" };
-const _hoisted_17$H = {
+const _hoisted_17$I = {
   key: 0,
   class: "pi pi-spin pi-spinner ctv:absolute ctv:top-0.5 ctv:right-0.5 ctv:text-3xs ctv:text-white"
 };
-const _hoisted_18$D = {
+const _hoisted_18$E = {
   key: 1,
   class: "ctv:absolute ctv:top-0.5 ctv:right-0.5 ctv:flex ctv:items-center ctv:justify-center ctv:size-4 ctv:rounded-full ctv:text-3xs ctv:leading-none ctv:bg-primary-background ctv:text-white"
 };
-const _hoisted_19$B = { class: "ctv:w-full ctv:truncate ctv:py-0.5 ctv:px-1 ctv:text-left ctv:text-3xs ctv:text-muted-foreground" };
-const _hoisted_20$w = {
+const _hoisted_19$C = { class: "ctv:w-full ctv:truncate ctv:py-0.5 ctv:px-1 ctv:text-left ctv:text-3xs ctv:text-muted-foreground" };
+const _hoisted_20$x = {
   key: 2,
   class: "ctv:flex ctv:justify-center ctv:pt-1.5"
 };
-const _hoisted_21$q = ["disabled"];
+const _hoisted_21$r = ["disabled"];
 const _sfc_main$4p = /* @__PURE__ */ defineComponent({
   __name: "EaglePickerPopup",
   props: {
@@ -81137,21 +81185,21 @@ const _sfc_main$4p = /* @__PURE__ */ defineComponent({
                   onError: _cache2[4] || (_cache2[4] = ($event) => $event.target.style.opacity = "0.15")
                 }, null, 42, _hoisted_15$T),
                 createBaseVNode("span", _hoisted_16$N, toDisplayString$1(item.ext), 1),
-                pendingId.value === item.id ? (openBlock(), createElementBlock("i", _hoisted_17$H)) : isAdded(item) ? (openBlock(), createElementBlock("span", _hoisted_18$D, [..._cache2[9] || (_cache2[9] = [
+                pendingId.value === item.id ? (openBlock(), createElementBlock("i", _hoisted_17$I)) : isAdded(item) ? (openBlock(), createElementBlock("span", _hoisted_18$E, [..._cache2[9] || (_cache2[9] = [
                   createBaseVNode("i", { class: "pi pi-check" }, null, -1)
                 ])])) : createCommentVNode("", true),
-                createBaseVNode("span", _hoisted_19$B, toDisplayString$1(item.name || "—"), 1)
+                createBaseVNode("span", _hoisted_19$C, toDisplayString$1(item.name || "—"), 1)
               ], 10, _hoisted_14$10);
             }), 128))
           ])),
-          visibleItems.value.length > 0 && !unref(exhausted) ? (openBlock(), createElementBlock("div", _hoisted_20$w, [
+          visibleItems.value.length > 0 && !unref(exhausted) ? (openBlock(), createElementBlock("div", _hoisted_20$x, [
             createBaseVNode("button", {
               type: "button",
               class: normalizeClass([unref(closeBtnClass), "ctv:!w-auto ctv:px-2"]),
               disabled: unref(loadingMore),
               onClick: _cache2[5] || (_cache2[5] = //@ts-ignore
               (...args) => unref(loadMore) && unref(loadMore)(...args))
-            }, toDisplayString$1(unref(loadingMore) ? _ctx.$t("eagle.loading") : _ctx.$t("eagle.loadMore")), 11, _hoisted_21$q)
+            }, toDisplayString$1(unref(loadingMore) ? _ctx.$t("eagle.loading") : _ctx.$t("eagle.loadMore")), 11, _hoisted_21$r)
           ])) : createCommentVNode("", true)
         ])
       ], 32);
@@ -86539,7 +86587,7 @@ const _sfc_main$4o = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-Cz28HyPS.mjs"),
+      loader: () => import("./AgentPanelRoot-BAqzwuCw.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -86599,7 +86647,7 @@ const _sfc_main$4o = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const DockedAgentPanel = /* @__PURE__ */ _export_sfc(_sfc_main$4o, [["__scopeId", "data-v-51d0611f"]]);
+const DockedAgentPanel = /* @__PURE__ */ _export_sfc(_sfc_main$4o, [["__scopeId", "data-v-0153ecd2"]]);
 const AGENT_TOOLTIP_SHOW_DELAY = 300;
 const AGENT_REKA_TOOLTIP_PROVIDER_PROPS = {
   delayDuration: AGENT_TOOLTIP_SHOW_DELAY,
@@ -86633,14 +86681,22 @@ const _hoisted_8$1$ = { class: "ctv:min-w-0 ctv:truncate" };
 const _hoisted_9$1Q = { class: "ctv:truncate" };
 const _hoisted_10$1B = { class: "ctv:ml-auto ctv:flex ctv:size-4 ctv:shrink-0 ctv:items-center ctv:justify-center" };
 const _hoisted_11$1q = { class: "ctv:truncate" };
-const _hoisted_12$1e = { class: "ctv:ml-auto ctv:flex ctv:size-4 ctv:shrink-0 ctv:items-center ctv:justify-center" };
-const _hoisted_13$16 = {
-  key: 1,
+const _hoisted_12$1e = {
+  key: 0,
+  class: "ctv:text-agent-fg-muted ctv:ml-1 ctv:shrink-0 ctv:text-xs/4"
+};
+const _hoisted_13$16 = { class: "ctv:ml-auto ctv:flex ctv:size-4 ctv:shrink-0 ctv:items-center ctv:justify-center" };
+const _hoisted_14$$ = { class: "ctv:truncate" };
+const _hoisted_15$S = { class: "ctv:ml-auto ctv:flex ctv:size-4 ctv:shrink-0 ctv:items-center ctv:justify-center" };
+const _hoisted_16$M = { class: "ctv:truncate" };
+const _hoisted_17$H = { class: "ctv:ml-auto ctv:flex ctv:size-4 ctv:shrink-0 ctv:items-center ctv:justify-center" };
+const _hoisted_18$D = {
+  key: 2,
   class: "ctv:flex ctv:flex-col ctv:gap-1.5 ctv:p-1"
 };
-const _hoisted_14$$ = { class: "ctv:text-agent-fg-muted ctv:text-xs/4" };
-const _hoisted_15$S = ["placeholder", "onKeydown"];
-const _hoisted_16$M = ["aria-label"];
+const _hoisted_19$B = { class: "ctv:text-agent-fg-muted ctv:text-xs/4" };
+const _hoisted_20$w = ["placeholder", "onKeydown"];
+const _hoisted_21$q = ["aria-label"];
 const chipClass$1 = "ctv:group ctv:text-agent-fg ctv:hover:bg-agent-surface-hover ctv:inline-flex ctv:h-7 ctv:min-w-0 ctv:cursor-pointer ctv:items-center ctv:gap-2 ctv:rounded-lg ctv:px-2.5 ctv:text-xs/4 ctv:font-medium ctv:transition-colors";
 const menuClass = "agent-scope ctv:bg-agent-surface-raised ctv:z-1100 ctv:box-border ctv:max-h-72 ctv:min-w-56 ctv:overflow-y-auto ctv:rounded-[10px] ctv:border ctv:border-white/10 ctv:p-1 ctv:font-inter ctv:shadow-lg";
 const itemClass = "ctv:text-agent-fg ctv:box-border ctv:flex ctv:h-7 ctv:w-full ctv:cursor-pointer ctv:items-center ctv:gap-1.5 ctv:rounded-lg ctv:px-1.5 ctv:py-1 ctv:text-[14px]/5 ctv:font-normal ctv:outline-none ctv:data-highlighted:bg-[#404040] ctv:data-disabled:cursor-not-allowed ctv:data-disabled:opacity-50";
@@ -86660,7 +86716,12 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
       "local-llm": "Local LLM",
       "claude-code": "Claude Code",
       codex: "Codex",
-      "qwen-code": "Qwen Code"
+      "qwen-code": "Qwen Code",
+      "deepseek-harness": "DeepSeek Harness"
+    };
+    const ROUTES = {
+      "deepseek-account": "agentBar.routeAccount",
+      "deepseek-official": "agentBar.routeApiKey"
     };
     const current = computed(() => providers.value.find((p2) => p2.id === provider.value));
     const providerLabel = computed(() => {
@@ -86671,6 +86732,19 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
       var _a2;
       return ((_a2 = current.value) == null ? void 0 : _a2.models) ?? [];
     });
+    const modelRows = computed(() => {
+      var _a2;
+      return ((_a2 = current.value) == null ? void 0 : _a2.model_options) ?? [];
+    });
+    const modelLabel = computed(() => {
+      const row = modelRows.value.find((r2) => r2.value === model.value);
+      return (row == null ? void 0 : row.label) ?? model.value;
+    });
+    function routeLabel(group) {
+      if (!group) return "";
+      const key = ROUTES[group];
+      return key ? t2(key) : group;
+    }
     const statusText = computed(() => {
       const p2 = current.value;
       if (!p2) return "";
@@ -86731,6 +86805,7 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
       if (typeof (tabs == null ? void 0 : tabs.toggleSidebarTab) === "function") tabs.toggleSidebarTab("comfytv-workflow-config");
     }
     onMounted(() => void load());
+    watch(agentProviders, () => void load());
     return (_ctx, _cache2) => {
       return openBlock(), createElementBlock("div", _hoisted_1$66, [
         createVNode(unref(DropdownMenuRoot_default), {
@@ -86861,7 +86936,7 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
                   type: "button",
                   class: normalizeClass(unref(cn)(chipClass$1, "ctv:text-agent-fg-muted ctv:hover:text-agent-fg", modelOpen.value && "ctv:bg-agent-surface-hover ctv:text-agent-fg"))
                 }, [
-                  createBaseVNode("span", _hoisted_8$1$, toDisplayString$1(model.value || unref(t2)("agentBar.defaultModel")), 1),
+                  createBaseVNode("span", _hoisted_8$1$, toDisplayString$1(modelLabel.value || unref(t2)("agentBar.defaultModel")), 1),
                   _cache2[6] || (_cache2[6] = createBaseVNode("span", { class: "ctv:icon-[lucide--chevron-down] ctv:size-3 ctv:shrink-0" }, null, -1))
                 ], 2)
               ]),
@@ -86878,7 +86953,7 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
                   }, ["stop"]))
                 }, {
                   default: withCtx(() => [
-                    models.value.length ? (openBlock(), createBlock(unref(DropdownMenuRadioGroup_default), {
+                    modelRows.value.length ? (openBlock(), createBlock(unref(DropdownMenuRadioGroup_default), {
                       key: 0,
                       "model-value": model.value,
                       "onUpdate:modelValue": setModel
@@ -86901,15 +86976,16 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
                           ]),
                           _: 1
                         }),
-                        (openBlock(true), createElementBlock(Fragment$1, null, renderList(models.value, (m) => {
+                        (openBlock(true), createElementBlock(Fragment$1, null, renderList(modelRows.value, (row) => {
                           return openBlock(), createBlock(unref(DropdownMenuRadioItem_default), {
-                            key: m,
-                            value: m,
+                            key: row.value,
+                            value: row.value,
                             class: normalizeClass(itemClass)
                           }, {
                             default: withCtx(() => [
-                              createBaseVNode("span", _hoisted_11$1q, toDisplayString$1(m), 1),
-                              createBaseVNode("span", _hoisted_12$1e, [
+                              createBaseVNode("span", _hoisted_11$1q, toDisplayString$1(row.label), 1),
+                              row.group ? (openBlock(), createElementBlock("span", _hoisted_12$1e, toDisplayString$1(routeLabel(row.group)), 1)) : createCommentVNode("", true),
+                              createBaseVNode("span", _hoisted_13$16, [
                                 createVNode(unref(DropdownMenuItemIndicator_default), null, {
                                   default: withCtx(() => [..._cache2[8] || (_cache2[8] = [
                                     createBaseVNode("span", { class: "ctv:icon-[lucide--check] ctv:size-4" }, null, -1)
@@ -86923,15 +86999,60 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
                         }), 128))
                       ]),
                       _: 1
-                    }, 8, ["model-value"])) : (openBlock(), createElementBlock("div", _hoisted_13$16, [
-                      createBaseVNode("div", _hoisted_14$$, toDisplayString$1(unref(t2)("agentBar.model")), 1),
+                    }, 8, ["model-value"])) : models.value.length ? (openBlock(), createBlock(unref(DropdownMenuRadioGroup_default), {
+                      key: 1,
+                      "model-value": model.value,
+                      "onUpdate:modelValue": setModel
+                    }, {
+                      default: withCtx(() => [
+                        createVNode(unref(DropdownMenuRadioItem_default), {
+                          value: "",
+                          class: normalizeClass(itemClass)
+                        }, {
+                          default: withCtx(() => [
+                            createBaseVNode("span", _hoisted_14$$, toDisplayString$1(unref(t2)("agentBar.defaultModel")), 1),
+                            createBaseVNode("span", _hoisted_15$S, [
+                              createVNode(unref(DropdownMenuItemIndicator_default), null, {
+                                default: withCtx(() => [..._cache2[9] || (_cache2[9] = [
+                                  createBaseVNode("span", { class: "ctv:icon-[lucide--check] ctv:size-4" }, null, -1)
+                                ])]),
+                                _: 1
+                              })
+                            ])
+                          ]),
+                          _: 1
+                        }),
+                        (openBlock(true), createElementBlock(Fragment$1, null, renderList(models.value, (m) => {
+                          return openBlock(), createBlock(unref(DropdownMenuRadioItem_default), {
+                            key: m,
+                            value: m,
+                            class: normalizeClass(itemClass)
+                          }, {
+                            default: withCtx(() => [
+                              createBaseVNode("span", _hoisted_16$M, toDisplayString$1(m), 1),
+                              createBaseVNode("span", _hoisted_17$H, [
+                                createVNode(unref(DropdownMenuItemIndicator_default), null, {
+                                  default: withCtx(() => [..._cache2[10] || (_cache2[10] = [
+                                    createBaseVNode("span", { class: "ctv:icon-[lucide--check] ctv:size-4" }, null, -1)
+                                  ])]),
+                                  _: 1
+                                })
+                              ])
+                            ]),
+                            _: 2
+                          }, 1032, ["value"]);
+                        }), 128))
+                      ]),
+                      _: 1
+                    }, 8, ["model-value"])) : (openBlock(), createElementBlock("div", _hoisted_18$D, [
+                      createBaseVNode("div", _hoisted_19$B, toDisplayString$1(unref(t2)("agentBar.model")), 1),
                       withDirectives(createBaseVNode("input", {
                         "onUpdate:modelValue": _cache2[1] || (_cache2[1] = ($event) => modelDraft.value = $event),
                         type: "text",
                         placeholder: unref(t2)("agentBar.defaultModel"),
                         class: "ctv:text-agent-fg ctv:placeholder:text-agent-fg-muted ctv:h-8 ctv:w-full ctv:rounded-[10px] ctv:border ctv:border-white/15 ctv:bg-transparent ctv:px-2.5 ctv:py-1 ctv:text-[14px]/5 ctv:outline-none",
                         onKeydown: withKeys(withModifiers(commitModelDraft, ["prevent"]), ["enter"])
-                      }, null, 40, _hoisted_15$S), [
+                      }, null, 40, _hoisted_20$w), [
                         [vModelText, modelDraft.value]
                       ]),
                       createBaseVNode("button", {
@@ -86960,9 +87081,9 @@ const _sfc_main$4n = /* @__PURE__ */ defineComponent({
                       "aria-label": unref(t2)("agentBar.openSettings"),
                       class: "ctv:text-agent-fg-muted ctv:hover:bg-agent-surface-hover ctv:hover:text-agent-fg ctv:ml-auto ctv:flex ctv:size-7 ctv:shrink-0 ctv:cursor-pointer ctv:items-center ctv:justify-center ctv:rounded-lg ctv:transition-colors",
                       onClick: openSettings
-                    }, [..._cache2[9] || (_cache2[9] = [
+                    }, [..._cache2[11] || (_cache2[11] = [
                       createBaseVNode("span", { class: "ctv:icon-[lucide--settings-2] ctv:size-4" }, null, -1)
-                    ])], 8, _hoisted_16$M)
+                    ])], 8, _hoisted_21$q)
                   ]),
                   _: 1
                 }),
@@ -87269,10 +87390,19 @@ function useSettingsPanel(isActive2, textOf = () => "") {
   const probes = /* @__PURE__ */ ref({});
   const collapsedStore = useStorage(COLLAPSED_STORAGE_KEY, {});
   function modelSuggestions(key) {
-    var _a2;
     if (!key.startsWith(MODEL_KEY_PREFIX)) return [];
     const providerId = key.slice(MODEL_KEY_PREFIX.length);
-    return ((_a2 = agentProviders.value.find((p2) => p2.id === providerId)) == null ? void 0 : _a2.models) ?? [];
+    const provider = agentProviders.value.find((p2) => p2.id === providerId);
+    if (!provider) return [];
+    const rows2 = provider.model_options ?? [];
+    if (rows2.length) {
+      return rows2.map((r2) => ({
+        value: r2.value,
+        label: r2.label,
+        group: r2.group
+      }));
+    }
+    return (provider.models ?? []).map((m) => ({ value: m, label: m }));
   }
   const changedKeys = computed(() => rows.value.filter((r2) => values.value[r2.key] !== r2.value).map((r2) => r2.key));
   const dirtyCount = computed(() => changedKeys.value.length);
@@ -90603,7 +90733,7 @@ const _sfc_main$4f = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ComfyTVSidebar = /* @__PURE__ */ _export_sfc(_sfc_main$4f, [["__scopeId", "data-v-1c224f98"]]);
+const ComfyTVSidebar = /* @__PURE__ */ _export_sfc(_sfc_main$4f, [["__scopeId", "data-v-3e5b1f71"]]);
 const OUTPUT_SLOTS = ["image", "images", "video", "audio", "text", "model"];
 const SLOT_GROUPS = {
   image: ["images", "image"],
@@ -91876,11 +92006,8 @@ function findDiffStart(a2, b, pos) {
     if (!childA.sameMarkup(childB))
       return pos;
     if (childA.isText && childA.text != childB.text) {
-      let tA = childA.text, tB = childB.text, j2 = 0;
-      for (; tA[j2] == tB[j2]; j2++)
+      for (let j2 = 0; childA.text[j2] == childB.text[j2]; j2++)
         pos++;
-      if (j2 && j2 < tA.length && j2 < tB.length && surrogateHigh(tA.charCodeAt(j2 - 1)) && surrogateLow(tA.charCodeAt(j2)))
-        pos--;
       return pos;
     }
     if (childA.content.size || childB.content.size) {
@@ -91904,16 +92031,11 @@ function findDiffEnd(a2, b, posA, posB) {
     if (!childA.sameMarkup(childB))
       return { a: posA, b: posB };
     if (childA.isText && childA.text != childB.text) {
-      let tA = childA.text, tB = childB.text, iA2 = tA.length, iB2 = tB.length;
-      while (iA2 > 0 && iB2 > 0 && tA[iA2 - 1] == tB[iB2 - 1]) {
-        iA2--;
-        iB2--;
+      let same = 0, minSize = Math.min(childA.text.length, childB.text.length);
+      while (same < minSize && childA.text[childA.text.length - same - 1] == childB.text[childB.text.length - same - 1]) {
+        same++;
         posA--;
         posB--;
-      }
-      if (iA2 && iB2 && iA2 < tA.length && surrogateHigh(tA.charCodeAt(iA2 - 1)) && surrogateLow(tA.charCodeAt(iA2))) {
-        posA++;
-        posB++;
       }
       return { a: posA, b: posB };
     }
@@ -91925,12 +92047,6 @@ function findDiffEnd(a2, b, posA, posB) {
     posA -= size2;
     posB -= size2;
   }
-}
-function surrogateLow(ch) {
-  return ch >= 56320 && ch < 57344;
-}
-function surrogateHigh(ch) {
-  return ch >= 55296 && ch < 56320;
 }
 class Fragment {
   /**
@@ -92543,8 +92659,7 @@ function addRange($start, $end, depth, target) {
     addNode($end.nodeBefore, target);
 }
 function close(node, content) {
-  if (!node.type.validContent(content))
-    throw new ReplaceError("Invalid content for node " + node.type.name);
+  node.type.checkContent(content);
   return node.copy(content);
 }
 function replaceThreeWay($from, $start, $end, $to, depth) {
@@ -93791,12 +93906,13 @@ function computeAttrs(attrs, value) {
   return built;
 }
 function checkAttrs(attrs, values, type, name) {
-  for (let attr in values)
-    if (!(attr in attrs))
-      throw new RangeError(`Unsupported attribute ${attr} for ${type} of type ${name}`);
-  for (let attr in attrs) {
-    if (attrs[attr].validate)
-      attrs[attr].validate(values[attr]);
+  for (let name2 in values)
+    if (!(name2 in attrs))
+      throw new RangeError(`Unsupported attribute ${name2} for ${type} of type ${name2}`);
+  for (let name2 in attrs) {
+    let attr = attrs[name2];
+    if (attr.validate)
+      attr.validate(values[name2]);
   }
 }
 function initAttrs(typeName, attrs) {
@@ -99638,7 +99754,7 @@ class MarkViewDesc extends ViewDesc {
   }
 }
 class NodeViewDesc extends ViewDesc {
-  constructor(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM) {
+  constructor(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, view, pos) {
     super(parent, [], dom, contentDOM);
     this.node = node;
     this.outerDeco = outerDeco;
@@ -99681,11 +99797,11 @@ class NodeViewDesc extends ViewDesc {
     let nodeDOM = dom;
     dom = applyOuterDeco(dom, outerDeco, node);
     if (spec)
-      return descObj = new CustomNodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM, spec);
+      return descObj = new CustomNodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM, spec, view, pos + 1);
     else if (node.isText)
-      return new TextViewDesc(parent, node, outerDeco, innerDeco, dom, nodeDOM);
+      return new TextViewDesc(parent, node, outerDeco, innerDeco, dom, nodeDOM, view);
     else
-      return new NodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM);
+      return new NodeViewDesc(parent, node, outerDeco, innerDeco, dom, contentDOM || null, nodeDOM, view, pos + 1);
   }
   parseRule() {
     if (this.node.type.spec.reparseInView)
@@ -99841,14 +99957,14 @@ class NodeViewDesc extends ViewDesc {
 }
 function docViewDesc(doc2, outerDeco, innerDeco, dom, view) {
   applyOuterDeco(dom, outerDeco, doc2);
-  let docView = new NodeViewDesc(void 0, doc2, outerDeco, innerDeco, dom, dom, dom);
+  let docView = new NodeViewDesc(void 0, doc2, outerDeco, innerDeco, dom, dom, dom, view, 0);
   if (docView.contentDOM)
     docView.updateChildren(view, 0);
   return docView;
 }
 class TextViewDesc extends NodeViewDesc {
-  constructor(parent, node, outerDeco, innerDeco, dom, nodeDOM) {
-    super(parent, node, outerDeco, innerDeco, dom, null, nodeDOM);
+  constructor(parent, node, outerDeco, innerDeco, dom, nodeDOM, view) {
+    super(parent, node, outerDeco, innerDeco, dom, null, nodeDOM, view, 0);
   }
   parseRule() {
     let skip = this.nodeDOM.parentNode;
@@ -99887,9 +100003,9 @@ class TextViewDesc extends NodeViewDesc {
   ignoreMutation(mutation) {
     return mutation.type != "characterData" && mutation.type != "selection";
   }
-  slice(from2, to, _view) {
+  slice(from2, to, view) {
     let node = this.node.cut(from2, to), dom = document.createTextNode(node.text);
-    return new TextViewDesc(this.parent, node, this.outerDeco, this.innerDeco, dom, dom);
+    return new TextViewDesc(this.parent, node, this.outerDeco, this.innerDeco, dom, dom, view);
   }
   markDirty(from2, to) {
     super.markDirty(from2, to);
@@ -99918,8 +100034,8 @@ class TrailingHackViewDesc extends ViewDesc {
   }
 }
 class CustomNodeViewDesc extends NodeViewDesc {
-  constructor(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, spec) {
-    super(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM);
+  constructor(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, spec, view, pos) {
+    super(parent, node, outerDeco, innerDeco, dom, contentDOM, nodeDOM, view, pos);
     this.spec = spec;
   }
   // A custom `update` method gets to decide whether the update goes
@@ -100134,14 +100250,6 @@ class ViewTreeUpdater {
         if (next.matchesMark(marks[depth]) && !this.isLocked(next.dom)) {
           found2 = i;
           break;
-        }
-      }
-      if (found2 < 0 && this.index < this.top.children.length) {
-        let cur = this.top.children[this.index];
-        if (cur instanceof MarkViewDesc && cur.dirty != NODE_DIRTY && cur.mark.type == marks[depth].type && cur.spec.update && !this.isLocked(cur.dom) && cur.spec.update(marks[depth])) {
-          cur.mark = marks[depth];
-          found2 = this.index;
-          this.changed = true;
         }
       }
       if (found2 > -1) {
@@ -100524,10 +100632,10 @@ function selectionToDOM(view, force = false) {
   syncNodeSelection(view, sel2);
   if (!editorOwnsSelection(view))
     return;
-  let mouseDown = view.input.mouseDown;
-  if (!force && chrome && mouseDown) {
+  if (!force && view.input.mouseDown && view.input.mouseDown.allowDefault && chrome) {
     let domSel = view.domSelectionRange(), curSel = view.domObserver.currentSelection;
-    if (domSel.anchorNode && curSel.anchorNode && isEquivalentPosition(domSel.anchorNode, domSel.anchorOffset, curSel.anchorNode, curSel.anchorOffset) && mouseDown.delaySelUpdate()) {
+    if (domSel.anchorNode && curSel.anchorNode && isEquivalentPosition(domSel.anchorNode, domSel.anchorOffset, curSel.anchorNode, curSel.anchorOffset)) {
+      view.input.mouseDown.delayedSelectionSync = true;
       view.domObserver.setCurSelection();
       return;
     }
@@ -101177,8 +101285,9 @@ const wrapMap = {
   td: ["table", "tbody", "tr"],
   th: ["table", "tbody", "tr"]
 };
+let _detachedDoc = null;
 function detachedDoc() {
-  return document.implementation.createHTMLDocument("title");
+  return _detachedDoc || (_detachedDoc = document.implementation.createHTMLDocument("title"));
 }
 let _policy = null;
 function maybeWrapTrusted(html) {
@@ -101193,7 +101302,7 @@ function readHTML(html) {
   let metas = /^(\s*<meta [^>]*>)*/.exec(html);
   if (metas)
     html = html.slice(metas[0].length);
-  let doc2 = detachedDoc(), elt = doc2.body;
+  let elt = detachedDoc().createElement("div");
   let firstTag = /<([a-z][^>\s]+)/i.exec(html), wrap2;
   if (wrap2 = firstTag && wrapMap[firstTag[1].toLowerCase()])
     html = wrap2.map((n) => "<" + n + ">").join("") + html + wrap2.map((n) => "</" + n + ">").reverse().join("");
@@ -101201,17 +101310,6 @@ function readHTML(html) {
   if (wrap2)
     for (let i = 0; i < wrap2.length; i++)
       elt = elt.querySelector(wrap2[i]) || elt;
-  for (let i = 0; i < doc2.styleSheets.length; i++) {
-    let style2 = doc2.styleSheets[i];
-    for (let j2 = 0; j2 < style2.rules.length; j2++) {
-      let rule = style2.rules[j2];
-      if (rule instanceof CSSStyleRule) {
-        let matches2 = elt.querySelectorAll(rule.selectorText);
-        for (let k2 = 0; k2 < matches2.length; k2++)
-          matches2[k2].style.cssText += rule.style.cssText;
-      }
-    }
-  }
   return elt;
 }
 function restoreReplacedSpaces(dom) {
@@ -101289,8 +101387,6 @@ function setSelectionOrigin(view, origin) {
   view.input.lastSelectionTime = Date.now();
 }
 function destroyInput(view) {
-  if (view.input.mouseDown)
-    view.input.mouseDown.done();
   view.domObserver.stop();
   for (let type in view.input.eventHandlers)
     view.dom.removeEventListener(type, view.input.eventHandlers[type]);
@@ -101327,7 +101423,7 @@ function dispatchEvent(view, event) {
 editHandlers.keydown = (view, _event) => {
   let event = _event;
   view.input.shiftKey = event.keyCode == 16 || event.shiftKey;
-  if (inOrNearComposition(view))
+  if (inOrNearComposition(view, event))
     return;
   view.input.lastKeyCode = event.keyCode;
   view.input.lastKeyCodeTime = Date.now();
@@ -101356,7 +101452,7 @@ editHandlers.keyup = (view, event) => {
 };
 editHandlers.keypress = (view, _event) => {
   let event = _event;
-  if (inOrNearComposition(view) || !event.charCode || event.ctrlKey && !event.altKey || mac$2 && event.metaKey)
+  if (inOrNearComposition(view, event) || !event.charCode || event.ctrlKey && !event.altKey || mac$2 && event.metaKey)
     return;
   if (view.someProp("handleKeyPress", (f2) => f2(view, event))) {
     event.preventDefault();
@@ -101443,28 +101539,26 @@ function handleTripleClick(view, pos, inside, event) {
 function defaultTripleClick(view, inside, event) {
   if (event.button != 0)
     return false;
-  let selection = selectionForTripleClick(view, inside, true), doc2 = view.state.doc;
-  if (!selection)
-    return false;
-  updateSelection(view, selection);
-  if (selection instanceof TextSelection && doc2.eq(view.state.doc))
-    view.input.mouseDown = new TripleClickDrag(view, selection);
-  return true;
-}
-function selectionForTripleClick(view, inside, selectNodes) {
   let doc2 = view.state.doc;
-  if (inside == -1)
-    return doc2.inlineContent ? TextSelection.create(doc2, 0, doc2.content.size) : null;
+  if (inside == -1) {
+    if (doc2.inlineContent) {
+      updateSelection(view, TextSelection.create(doc2, 0, doc2.content.size));
+      return true;
+    }
+    return false;
+  }
   let $pos = doc2.resolve(inside);
   for (let i = $pos.depth + 1; i > 0; i--) {
     let node = i > $pos.depth ? $pos.nodeAfter : $pos.node(i);
     let nodePos = $pos.before(i);
     if (node.inlineContent)
-      return TextSelection.create(doc2, nodePos + 1, nodePos + 1 + node.content.size);
-    else if (selectNodes && NodeSelection.isSelectable(node))
-      return NodeSelection.create(doc2, nodePos);
+      updateSelection(view, TextSelection.create(doc2, nodePos + 1, nodePos + 1 + node.content.size));
+    else if (NodeSelection.isSelectable(node))
+      updateSelection(view, NodeSelection.create(doc2, nodePos));
+    else
+      continue;
+    return true;
   }
-  return null;
 }
 function forceDOMFlush(view) {
   return endComposition(view);
@@ -101482,13 +101576,13 @@ handlers.mousedown = (view, _event) => {
       type = "tripleClick";
   }
   view.input.lastClick = { time: now2, x: event.clientX, y: event.clientY, type, button: event.button };
-  if (view.input.mouseDown)
-    view.input.mouseDown.done();
   let pos = view.posAtCoords(eventCoords(event));
   if (!pos)
     return;
   if (type == "singleClick") {
-    view.input.mouseDown = new LeftMouseDown(view, pos, event, !!flushed);
+    if (view.input.mouseDown)
+      view.input.mouseDown.done();
+    view.input.mouseDown = new MouseDown(view, pos, event, !!flushed);
   } else if ((type == "doubleClick" ? handleDoubleClick : handleTripleClick)(view, pos.pos, pos.inside, event)) {
     event.preventDefault();
   } else {
@@ -101496,36 +101590,13 @@ handlers.mousedown = (view, _event) => {
   }
 };
 class MouseDown {
-  constructor(view) {
-    this.view = view;
-    this.mightDrag = null;
-    view.root.addEventListener("mouseup", this.up = this.up.bind(this));
-    view.root.addEventListener("mousemove", this.move = this.move.bind(this));
-  }
-  up(event) {
-    this.done();
-  }
-  move(event) {
-    if (event.buttons == 0)
-      this.done();
-  }
-  done() {
-    this.view.root.removeEventListener("mouseup", this.up);
-    this.view.root.removeEventListener("mousemove", this.move);
-    if (this.view.input.mouseDown == this)
-      this.view.input.mouseDown = null;
-  }
-  delaySelUpdate() {
-    return false;
-  }
-}
-class LeftMouseDown extends MouseDown {
   constructor(view, pos, event, flushed) {
-    super(view);
+    this.view = view;
     this.pos = pos;
     this.event = event;
     this.flushed = flushed;
     this.delayedSelectionSync = false;
+    this.mightDrag = null;
     this.startDoc = view.state.doc;
     this.selectNode = !!event[selectNodeModifier];
     this.allowDefault = event.shiftKey;
@@ -101560,10 +101631,13 @@ class LeftMouseDown extends MouseDown {
         }, 20);
       this.view.domObserver.start();
     }
+    view.root.addEventListener("mouseup", this.up = this.up.bind(this));
+    view.root.addEventListener("mousemove", this.move = this.move.bind(this));
     setSelectionOrigin(view, "pointer");
   }
   done() {
-    super.done();
+    this.view.root.removeEventListener("mouseup", this.up);
+    this.view.root.removeEventListener("mousemove", this.move);
     if (this.mightDrag && this.target) {
       this.view.domObserver.stop();
       if (this.mightDrag.addAttr)
@@ -101573,10 +101647,8 @@ class LeftMouseDown extends MouseDown {
       this.view.domObserver.start();
     }
     if (this.delayedSelectionSync)
-      setTimeout(() => {
-        if (!this.view.isDestroyed)
-          selectionToDOM(this.view);
-      });
+      setTimeout(() => selectionToDOM(this.view));
+    this.view.input.mouseDown = null;
   }
   up(event) {
     this.done();
@@ -101608,39 +101680,12 @@ class LeftMouseDown extends MouseDown {
   move(event) {
     this.updateAllowDefault(event);
     setSelectionOrigin(this.view, "pointer");
-    super.move(event);
+    if (event.buttons == 0)
+      this.done();
   }
   updateAllowDefault(event) {
     if (!this.allowDefault && (Math.abs(this.event.x - event.clientX) > 4 || Math.abs(this.event.y - event.clientY) > 4))
       this.allowDefault = true;
-  }
-  delaySelUpdate() {
-    if (!this.allowDefault)
-      return false;
-    this.delayedSelectionSync = true;
-    return true;
-  }
-}
-class TripleClickDrag extends MouseDown {
-  constructor(view, startSelection) {
-    super(view);
-    this.startSelection = startSelection;
-    this.startDoc = view.state.doc;
-  }
-  move(event) {
-    if (event.buttons == 0 || this.view.isDestroyed || !this.view.state.doc.eq(this.startDoc)) {
-      this.done();
-      return;
-    }
-    event.preventDefault();
-    setSelectionOrigin(this.view, "pointer");
-    let pos = this.view.posAtCoords(eventCoords(event));
-    let target = pos && selectionForTripleClick(this.view, pos.inside, false);
-    if (!target)
-      return;
-    let { doc: doc2 } = this.view.state, start2 = this.startSelection;
-    let [anchor2, head] = target.from < start2.from ? [start2.to, target.from] : [start2.from, target.to];
-    updateSelection(this.view, TextSelection.create(doc2, anchor2, head));
   }
 }
 handlers.touchstart = (view) => {
@@ -101656,7 +101701,7 @@ handlers.contextmenu = (view) => forceDOMFlush(view);
 function inOrNearComposition(view, event) {
   if (view.composing)
     return true;
-  if (safari && Math.abs(Date.now() - view.input.compositionEndedAt) < 500) {
+  if (safari && Math.abs(event.timeStamp - view.input.compositionEndedAt) < 500) {
     view.input.compositionEndedAt = -2e8;
     return true;
   }
@@ -101705,7 +101750,7 @@ function selectionBeforeUneditable(view) {
 editHandlers.compositionend = (view, event) => {
   if (view.composing) {
     view.input.composing = false;
-    view.input.compositionEndedAt = Date.now();
+    view.input.compositionEndedAt = event.timeStamp;
     view.input.compositionPendingChanges = view.domObserver.pendingRecords().length ? view.input.compositionID : 0;
     view.input.compositionNode = null;
     if (view.input.badSafariComposition)
@@ -101724,7 +101769,7 @@ function scheduleComposeEnd(view, delay) {
 function clearComposition(view) {
   if (view.composing) {
     view.input.composing = false;
-    view.input.compositionEndedAt = Date.now();
+    view.input.compositionEndedAt = timestampFromCustomEvent();
   }
   while (view.input.compositionNodes.length > 0)
     view.input.compositionNodes.pop().markParentsDirty();
@@ -101748,6 +101793,11 @@ function findCompositionNode(view) {
     }
   }
   return textBefore || textAfter;
+}
+function timestampFromCustomEvent() {
+  let event = document.createEvent("Event");
+  event.initEvent("event", true, true);
+  return event.timeStamp;
 }
 function endComposition(view, restarting = false) {
   if (android && view.domObserver.flushingSoon >= 0)
@@ -102803,7 +102853,7 @@ class DOMObserver {
         }
       }
     }
-    if (added.some((n) => n.nodeName == "BR") && (view.input.lastKeyCode == 8 || view.input.lastKeyCode == 46 || chrome && (view.composing || view.input.compositionEndedAt > Date.now() - 50) && mutations.some((m) => m.type == "childList" && m.removedNodes.length))) {
+    if (added.some((n) => n.nodeName == "BR") && (view.input.lastKeyCode == 8 || view.input.lastKeyCode == 46)) {
       for (let node of added)
         if (node.nodeName == "BR" && node.parentNode) {
           let after = node.nextSibling;
@@ -103244,26 +103294,36 @@ function skipClosingAndOpening($pos, fromEnd, mayOpen) {
   return end2;
 }
 function findDiff(a2, b, pos, preferredPos, preferredSide) {
-  let start2 = a2.findDiffStart(b, pos), lenA = pos + a2.size, lenB = pos + b.size;
+  let start2 = a2.findDiffStart(b, pos);
   if (start2 == null)
     return null;
-  let { a: endA, b: endB } = a2.findDiffEnd(b, lenA, lenB);
+  let { a: endA, b: endB } = a2.findDiffEnd(b, pos + a2.size, pos + b.size);
   if (preferredSide == "end") {
     let adjust = Math.max(0, start2 - Math.min(endA, endB));
     preferredPos -= endA + adjust - start2;
   }
-  if (endA < start2 && lenA < lenB) {
+  if (endA < start2 && a2.size < b.size) {
     let move = preferredPos <= start2 && preferredPos >= endA ? start2 - preferredPos : 0;
     start2 -= move;
+    if (start2 && start2 < b.size && isSurrogatePair(b.textBetween(start2 - 1, start2 + 1)))
+      start2 += move ? 1 : -1;
     endB = start2 + (endB - endA);
     endA = start2;
   } else if (endB < start2) {
     let move = preferredPos <= start2 && preferredPos >= endB ? start2 - preferredPos : 0;
     start2 -= move;
+    if (start2 && start2 < a2.size && isSurrogatePair(a2.textBetween(start2 - 1, start2 + 1)))
+      start2 += move ? 1 : -1;
     endA = start2 + (endA - endB);
     endB = start2;
   }
   return { start: start2, endA, endB };
+}
+function isSurrogatePair(str2) {
+  if (str2.length != 2)
+    return false;
+  let a2 = str2.charCodeAt(0), b = str2.charCodeAt(1);
+  return a2 >= 56320 && a2 <= 57343 && b >= 55296 && b <= 56319;
 }
 class EditorView {
   /**
@@ -103408,8 +103468,7 @@ class EditorView {
         if (chromeKludge && (!this.trackWrites || !this.dom.contains(this.trackWrites)))
           forceSelUpdate = true;
       }
-      let mouseDown = this.input.mouseDown;
-      if (forceSelUpdate || !(mouseDown && this.domObserver.currentSelection.eq(this.domSelectionRange()) && anchorInRightPlace(this) && mouseDown.delaySelUpdate())) {
+      if (forceSelUpdate || !(this.input.mouseDown && this.domObserver.currentSelection.eq(this.domSelectionRange()) && anchorInRightPlace(this))) {
         selectionToDOM(this, forceSelUpdate);
       } else {
         syncNodeSelection(this, state2.selection);
@@ -104294,22 +104353,14 @@ var expandSelectionForInlineText = ($from, $to, schema) => {
   return { from: from2, to };
 };
 var deleteSelection = () => ({ state: state2, dispatch }) => {
+  const { $from, $to } = state2.selection;
   if (state2.selection.empty) {
     return false;
   }
+  const { from: from2, to } = expandSelectionForInlineText($from, $to, state2.schema);
   if (dispatch) {
-    const tr2 = state2.tr;
-    const { ranges } = state2.selection;
-    const mapFrom = tr2.steps.length;
-    ranges.forEach((range) => {
-      const mapping = tr2.mapping.slice(mapFrom);
-      const $from = tr2.doc.resolve(mapping.map(range.$from.pos));
-      const $to = tr2.doc.resolve(mapping.map(range.$to.pos));
-      const { from: from2, to } = expandSelectionForInlineText($from, $to, state2.schema);
-      tr2.deleteRange(from2, to);
-    });
-    tr2.scrollIntoView();
-    dispatch(tr2);
+    state2.tr.deleteRange(from2, to).scrollIntoView();
+    dispatch(state2.tr);
   }
   return true;
 };
@@ -106196,12 +106247,6 @@ var splitListItem = (typeOrName, overrideAttrs = {}) => ({ tr: tr2, state: state
   }
   return true;
 };
-function normalizeListType(type) {
-  return !type || type === "1" ? null : type;
-}
-function areListTypesCompatible(typeA, typeB) {
-  return normalizeListType(typeA) === normalizeListType(typeB);
-}
 var joinListBackwards = (tr2, listType) => {
   const list = findParentNode((node) => node.type === listType)(tr2.selection);
   if (!list) {
@@ -106214,9 +106259,6 @@ var joinListBackwards = (tr2, listType) => {
   const nodeBefore = tr2.doc.nodeAt(before);
   const canJoinBackwards = list.node.type === (nodeBefore == null ? void 0 : nodeBefore.type) && canJoin(tr2.doc, list.pos);
   if (!canJoinBackwards) {
-    return true;
-  }
-  if (!areListTypesCompatible(list.node.attrs.type, nodeBefore == null ? void 0 : nodeBefore.attrs.type)) {
     return true;
   }
   tr2.join(list.pos);
@@ -106234,9 +106276,6 @@ var joinListForwards = (tr2, listType) => {
   const nodeAfter = tr2.doc.nodeAt(after);
   const canJoinForwards = list.node.type === (nodeAfter == null ? void 0 : nodeAfter.type) && canJoin(tr2.doc, after);
   if (!canJoinForwards) {
-    return true;
-  }
-  if (!areListTypesCompatible(list.node.attrs.type, nodeAfter == null ? void 0 : nodeAfter.attrs.type)) {
     return true;
   }
   tr2.join(after);
@@ -106591,565 +106630,6 @@ var EventEmitter = class {
     this.callbacks = {};
   }
 };
-function createStyleTag(style2, nonce, suffix) {
-  const tiptapStyleTag = document.querySelector(`style[data-tiptap-style${suffix ? `-${suffix}` : ""}]`);
-  if (tiptapStyleTag !== null) {
-    return tiptapStyleTag;
-  }
-  const styleNode = document.createElement("style");
-  if (nonce) {
-    styleNode.setAttribute("nonce", nonce);
-  }
-  styleNode.setAttribute(`data-tiptap-style${suffix ? `-${suffix}` : ""}`, "");
-  styleNode.innerHTML = style2;
-  document.getElementsByTagName("head")[0].appendChild(styleNode);
-  return styleNode;
-}
-function escapeForRegEx(string2) {
-  return string2.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-}
-function isNumber(value) {
-  return typeof value === "number";
-}
-function getType(value) {
-  return Object.prototype.toString.call(value).slice(8, -1);
-}
-function isPlainObject(value) {
-  if (getType(value) !== "Object") {
-    return false;
-  }
-  return value.constructor === Object && Object.getPrototypeOf(value) === Object.prototype;
-}
-var markdown_exports = {};
-__export(markdown_exports, {
-  createAtomBlockMarkdownSpec: () => createAtomBlockMarkdownSpec,
-  createBlockMarkdownSpec: () => createBlockMarkdownSpec,
-  createInlineMarkdownSpec: () => createInlineMarkdownSpec,
-  parseAttributes: () => parseAttributes,
-  parseIndentedBlocks: () => parseIndentedBlocks,
-  renderNestedMarkdownContent: () => renderNestedMarkdownContent,
-  serializeAttributes: () => serializeAttributes
-});
-function parseAttributes(attrString) {
-  if (!(attrString == null ? void 0 : attrString.trim())) {
-    return {};
-  }
-  const attributes = {};
-  const quotedStrings = [];
-  const tempString = attrString.replace(/["']([^"']*)["']/g, (match) => {
-    quotedStrings.push(match);
-    return `__QUOTED_${quotedStrings.length - 1}__`;
-  });
-  const classMatches = tempString.match(/(?:^|\s)\.([\w-]+)/g);
-  if (classMatches) {
-    const classes = classMatches.map((match) => match.trim().slice(1));
-    attributes.class = classes.join(" ");
-  }
-  const idMatch = tempString.match(/(?:^|\s)#([\w-]+)/);
-  if (idMatch) {
-    attributes.id = idMatch[1];
-  }
-  const kvRegex = /([a-zA-Z][\w-]*)\s*=\s*(__QUOTED_\d+__)/g;
-  const kvMatches = Array.from(tempString.matchAll(kvRegex));
-  kvMatches.forEach(([, key, quotedRef]) => {
-    var _a2;
-    const quotedIndex = parseInt(((_a2 = quotedRef.match(/__QUOTED_(\d+)__/)) == null ? void 0 : _a2[1]) || "0", 10);
-    const quotedValue = quotedStrings[quotedIndex];
-    if (quotedValue) {
-      attributes[key] = quotedValue.slice(1, -1);
-    }
-  });
-  const cleanString = tempString.replace(/(?:^|\s)\.([\w-]+)/g, "").replace(/(?:^|\s)#([\w-]+)/g, "").replace(/([a-zA-Z][\w-]*)\s*=\s*__QUOTED_\d+__/g, "").trim();
-  if (cleanString) {
-    const booleanAttrs = cleanString.split(/\s+/).filter(Boolean);
-    booleanAttrs.forEach((attr) => {
-      if (attr.match(/^[a-zA-Z][\w-]*$/)) {
-        attributes[attr] = true;
-      }
-    });
-  }
-  return attributes;
-}
-function serializeAttributes(attributes) {
-  if (!attributes || Object.keys(attributes).length === 0) {
-    return "";
-  }
-  const parts = [];
-  if (attributes.class) {
-    const classes = String(attributes.class).split(/\s+/).filter(Boolean);
-    classes.forEach((cls) => parts.push(`.${cls}`));
-  }
-  if (attributes.id) {
-    parts.push(`#${attributes.id}`);
-  }
-  Object.entries(attributes).forEach(([key, value]) => {
-    if (key === "class" || key === "id") {
-      return;
-    }
-    if (value === true) {
-      parts.push(key);
-    } else if (value !== false && value != null) {
-      parts.push(`${key}="${String(value)}"`);
-    }
-  });
-  return parts.join(" ");
-}
-function createAtomBlockMarkdownSpec(options) {
-  const {
-    nodeName,
-    name: markdownName,
-    parseAttributes: parseAttributes2 = parseAttributes,
-    serializeAttributes: serializeAttributes2 = serializeAttributes,
-    defaultAttributes = {},
-    requiredAttributes = [],
-    allowedAttributes
-  } = options;
-  const blockName = markdownName || nodeName;
-  const filterAttributes = (attrs) => {
-    if (!allowedAttributes) {
-      return attrs;
-    }
-    const filtered = {};
-    allowedAttributes.forEach((key) => {
-      if (key in attrs) {
-        filtered[key] = attrs[key];
-      }
-    });
-    return filtered;
-  };
-  return {
-    parseMarkdown: (token, h2) => {
-      const attrs = { ...defaultAttributes, ...token.attributes };
-      return h2.createNode(nodeName, attrs, []);
-    },
-    markdownTokenizer: {
-      name: nodeName,
-      level: "block",
-      start(src) {
-        var _a2;
-        const regex = new RegExp(`^:::${blockName}(?:\\s|$)`, "m");
-        const index2 = (_a2 = src.match(regex)) == null ? void 0 : _a2.index;
-        return index2 !== void 0 ? index2 : -1;
-      },
-      tokenize(src, _tokens, _lexer) {
-        const regex = new RegExp(`^:::${blockName}(?:\\s+\\{([^}]*)\\})?\\s*:::(?:\\n|$)`);
-        const match = src.match(regex);
-        if (!match) {
-          return void 0;
-        }
-        const attrString = match[1] || "";
-        const attributes = parseAttributes2(attrString);
-        const missingRequired = requiredAttributes.find((required2) => !(required2 in attributes));
-        if (missingRequired) {
-          return void 0;
-        }
-        return {
-          type: nodeName,
-          raw: match[0],
-          attributes
-        };
-      }
-    },
-    renderMarkdown: (node) => {
-      const filteredAttrs = filterAttributes(node.attrs || {});
-      const attrs = serializeAttributes2(filteredAttrs);
-      const attrString = attrs ? ` {${attrs}}` : "";
-      return `:::${blockName}${attrString} :::`;
-    }
-  };
-}
-function createBlockMarkdownSpec(options) {
-  const {
-    nodeName,
-    name: markdownName,
-    getContent,
-    parseAttributes: parseAttributes2 = parseAttributes,
-    serializeAttributes: serializeAttributes2 = serializeAttributes,
-    defaultAttributes = {},
-    content = "block",
-    allowedAttributes
-  } = options;
-  const blockName = markdownName || nodeName;
-  const filterAttributes = (attrs) => {
-    if (!allowedAttributes) {
-      return attrs;
-    }
-    const filtered = {};
-    allowedAttributes.forEach((key) => {
-      if (key in attrs) {
-        filtered[key] = attrs[key];
-      }
-    });
-    return filtered;
-  };
-  return {
-    parseMarkdown: (token, h2) => {
-      let nodeContent;
-      if (getContent) {
-        const contentResult = getContent(token);
-        nodeContent = typeof contentResult === "string" ? [{ type: "text", text: contentResult }] : contentResult;
-      } else if (content === "block") {
-        nodeContent = h2.parseChildren(token.tokens || []);
-      } else {
-        nodeContent = h2.parseInline(token.tokens || []);
-      }
-      const attrs = { ...defaultAttributes, ...token.attributes };
-      return h2.createNode(nodeName, attrs, nodeContent);
-    },
-    markdownTokenizer: {
-      name: nodeName,
-      level: "block",
-      start(src) {
-        var _a2;
-        const regex = new RegExp(`^:::${blockName}`, "m");
-        const index2 = (_a2 = src.match(regex)) == null ? void 0 : _a2.index;
-        return index2 !== void 0 ? index2 : -1;
-      },
-      tokenize(src, _tokens, lexer) {
-        var _a2;
-        const openingRegex = new RegExp(`^:::${blockName}(?:\\s+\\{([^}]*)\\})?\\s*\\n`);
-        const openingMatch = src.match(openingRegex);
-        if (!openingMatch) {
-          return void 0;
-        }
-        const [openingTag, attrString = ""] = openingMatch;
-        const attributes = parseAttributes2(attrString);
-        let level2 = 1;
-        const position = openingTag.length;
-        let matchedContent = "";
-        const blockPattern = /^:::([\w-]*)(\s.*)?/gm;
-        const remaining = src.slice(position);
-        blockPattern.lastIndex = 0;
-        for (; ; ) {
-          const match = blockPattern.exec(remaining);
-          if (match === null) {
-            break;
-          }
-          const matchPos = match.index;
-          const blockType = match[1];
-          if ((_a2 = match[2]) == null ? void 0 : _a2.endsWith(":::")) {
-            continue;
-          }
-          if (blockType) {
-            level2 += 1;
-          } else {
-            level2 -= 1;
-            if (level2 === 0) {
-              const rawContent = remaining.slice(0, matchPos);
-              matchedContent = rawContent.trim();
-              const fullMatch = src.slice(0, position + matchPos + match[0].length);
-              let contentTokens = [];
-              if (matchedContent) {
-                if (content === "block") {
-                  contentTokens = lexer.blockTokens(rawContent);
-                  contentTokens.forEach((token) => {
-                    if (token.text && (!token.tokens || token.tokens.length === 0)) {
-                      token.tokens = lexer.inlineTokens(token.text);
-                    }
-                  });
-                  while (contentTokens.length > 0) {
-                    const lastToken = contentTokens[contentTokens.length - 1];
-                    if (lastToken.type === "paragraph" && (!lastToken.text || lastToken.text.trim() === "")) {
-                      contentTokens.pop();
-                    } else {
-                      break;
-                    }
-                  }
-                } else {
-                  contentTokens = lexer.inlineTokens(matchedContent);
-                }
-              }
-              return {
-                type: nodeName,
-                raw: fullMatch,
-                attributes,
-                content: matchedContent,
-                tokens: contentTokens
-              };
-            }
-          }
-        }
-        return void 0;
-      }
-    },
-    renderMarkdown: (node, h2) => {
-      const filteredAttrs = filterAttributes(node.attrs || {});
-      const attrs = serializeAttributes2(filteredAttrs);
-      const attrString = attrs ? ` {${attrs}}` : "";
-      const renderedContent = h2.renderChildren(node.content || [], "\n\n");
-      return `:::${blockName}${attrString}
-
-${renderedContent}
-
-:::`;
-    }
-  };
-}
-function parseShortcodeAttributes(attrString) {
-  if (!attrString.trim()) {
-    return {};
-  }
-  const attributes = {};
-  const regex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
-  let match = regex.exec(attrString);
-  while (match !== null) {
-    const [, key, doubleQuoted, singleQuoted] = match;
-    attributes[key] = doubleQuoted || singleQuoted;
-    match = regex.exec(attrString);
-  }
-  return attributes;
-}
-function serializeShortcodeAttributes(attrs) {
-  return Object.entries(attrs).filter(([, value]) => value !== void 0 && value !== null).map(([key, value]) => `${key}="${value}"`).join(" ");
-}
-function createInlineMarkdownSpec(options) {
-  const {
-    nodeName,
-    name: shortcodeName,
-    getContent,
-    parseAttributes: parseAttributes2 = parseShortcodeAttributes,
-    serializeAttributes: serializeAttributes2 = serializeShortcodeAttributes,
-    defaultAttributes = {},
-    selfClosing = false,
-    allowedAttributes
-  } = options;
-  const shortcode = shortcodeName || nodeName;
-  const filterAttributes = (attrs) => {
-    if (!allowedAttributes) {
-      return attrs;
-    }
-    const filtered = {};
-    allowedAttributes.forEach((attr) => {
-      const attrName = typeof attr === "string" ? attr : attr.name;
-      const skipIfDefault = typeof attr === "string" ? void 0 : attr.skipIfDefault;
-      if (attrName in attrs) {
-        const value = attrs[attrName];
-        if (skipIfDefault !== void 0 && value === skipIfDefault) {
-          return;
-        }
-        filtered[attrName] = value;
-      }
-    });
-    return filtered;
-  };
-  const escapedShortcode = shortcode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return {
-    parseMarkdown: (token, h2) => {
-      const attrs = { ...defaultAttributes, ...token.attributes };
-      if (selfClosing) {
-        return h2.createNode(nodeName, attrs);
-      }
-      const content = getContent ? getContent(token) : token.content || "";
-      if (content) {
-        return h2.createNode(nodeName, attrs, [h2.createTextNode(content)]);
-      }
-      return h2.createNode(nodeName, attrs, []);
-    },
-    markdownTokenizer: {
-      name: nodeName,
-      level: "inline",
-      start(src) {
-        const startPattern = selfClosing ? new RegExp(`\\[${escapedShortcode}\\s*[^\\]]*\\]`) : new RegExp(`\\[${escapedShortcode}\\s*[^\\]]*\\][\\s\\S]*?\\[\\/${escapedShortcode}\\]`);
-        const match = src.match(startPattern);
-        const index2 = match == null ? void 0 : match.index;
-        return index2 !== void 0 ? index2 : -1;
-      },
-      tokenize(src, _tokens, _lexer) {
-        const tokenPattern = selfClosing ? new RegExp(`^\\[${escapedShortcode}\\s*([^\\]]*)\\]`) : new RegExp(
-          `^\\[${escapedShortcode}\\s*([^\\]]*)\\]([\\s\\S]*?)\\[\\/${escapedShortcode}\\]`
-        );
-        const match = src.match(tokenPattern);
-        if (!match) {
-          return void 0;
-        }
-        let content = "";
-        let attrString = "";
-        if (selfClosing) {
-          const [, attrs] = match;
-          attrString = attrs;
-        } else {
-          const [, attrs, contentMatch] = match;
-          attrString = attrs;
-          content = contentMatch || "";
-        }
-        const attributes = parseAttributes2(attrString.trim());
-        return {
-          type: nodeName,
-          raw: match[0],
-          content: content.trim(),
-          attributes
-        };
-      }
-    },
-    renderMarkdown: (node) => {
-      let content = "";
-      if (getContent) {
-        content = getContent(node);
-      } else if (node.content && node.content.length > 0) {
-        content = node.content.filter((child) => child.type === "text").map((child) => child.text).join("");
-      }
-      const filteredAttrs = filterAttributes(node.attrs || {});
-      const attrs = serializeAttributes2(filteredAttrs);
-      const attrString = attrs ? ` ${attrs}` : "";
-      if (selfClosing) {
-        return `[${shortcode}${attrString}]`;
-      }
-      return `[${shortcode}${attrString}]${content}[/${shortcode}]`;
-    }
-  };
-}
-function parseIndentedBlocks(src, config2, lexer) {
-  var _a2, _b2, _c, _d;
-  const lines = src.split("\n");
-  const items = [];
-  let totalRaw = "";
-  let i = 0;
-  const baseIndentSize = config2.baseIndentSize || 2;
-  while (i < lines.length) {
-    const currentLine = lines[i];
-    const itemMatch = currentLine.match(config2.itemPattern);
-    if (!itemMatch) {
-      if (items.length > 0) {
-        break;
-      } else if (currentLine.trim() === "") {
-        i += 1;
-        totalRaw = `${totalRaw}${currentLine}
-`;
-        continue;
-      } else {
-        return void 0;
-      }
-    }
-    const itemData = config2.extractItemData(itemMatch);
-    const { indentLevel, mainContent } = itemData;
-    totalRaw = `${totalRaw}${currentLine}
-`;
-    const itemContent = [mainContent];
-    i += 1;
-    while (i < lines.length) {
-      const nextLine = lines[i];
-      if (nextLine.trim() === "") {
-        const nextNonEmptyIndex = lines.slice(i + 1).findIndex((l) => l.trim() !== "");
-        if (nextNonEmptyIndex === -1) {
-          break;
-        }
-        const nextNonEmpty = lines[i + 1 + nextNonEmptyIndex];
-        const nextIndent2 = ((_b2 = (_a2 = nextNonEmpty.match(/^(\s*)/)) == null ? void 0 : _a2[1]) == null ? void 0 : _b2.length) || 0;
-        if (nextIndent2 > indentLevel) {
-          itemContent.push(nextLine);
-          totalRaw = `${totalRaw}${nextLine}
-`;
-          i += 1;
-          continue;
-        } else {
-          break;
-        }
-      }
-      const nextIndent = ((_d = (_c = nextLine.match(/^(\s*)/)) == null ? void 0 : _c[1]) == null ? void 0 : _d.length) || 0;
-      if (nextIndent > indentLevel) {
-        itemContent.push(nextLine);
-        totalRaw = `${totalRaw}${nextLine}
-`;
-        i += 1;
-      } else {
-        break;
-      }
-    }
-    let nestedTokens;
-    const nestedContent = itemContent.slice(1);
-    if (nestedContent.length > 0) {
-      const dedentedNested = nestedContent.map((nestedLine) => nestedLine.slice(indentLevel + baseIndentSize)).join("\n");
-      if (dedentedNested.trim()) {
-        if (config2.customNestedParser) {
-          nestedTokens = config2.customNestedParser(dedentedNested);
-        } else {
-          nestedTokens = lexer.blockTokens(dedentedNested);
-        }
-      }
-    }
-    const token = config2.createToken(itemData, nestedTokens);
-    items.push(token);
-  }
-  if (items.length === 0) {
-    return void 0;
-  }
-  return {
-    items,
-    raw: totalRaw
-  };
-}
-function renderNestedMarkdownContent(node, h2, prefixOrGenerator, ctx) {
-  if (!node || !Array.isArray(node.content)) {
-    return "";
-  }
-  const prefix = typeof prefixOrGenerator === "function" ? prefixOrGenerator(ctx) : prefixOrGenerator;
-  const [content, ...children] = node.content;
-  const mainContent = h2.renderChildren([content]);
-  let output = `${prefix}${mainContent}`;
-  if (children && children.length > 0) {
-    children.forEach((child, index2) => {
-      var _a2, _b2;
-      const childContent = (_b2 = (_a2 = h2.renderChild) == null ? void 0 : _a2.call(h2, child, index2 + 1)) != null ? _b2 : h2.renderChildren([child]);
-      if (childContent !== void 0 && childContent !== null) {
-        const indentedChild = childContent.split("\n").map((line) => line ? h2.indent(line) : h2.indent("")).join("\n");
-        output += child.type === "paragraph" ? `
-
-${indentedChild}` : `
-${indentedChild}`;
-      }
-    });
-  }
-  return output;
-}
-function mergeDeep(target, source) {
-  const output = { ...target };
-  if (isPlainObject(target) && isPlainObject(source)) {
-    Object.keys(source).forEach((key) => {
-      if (isPlainObject(source[key]) && isPlainObject(target[key])) {
-        output[key] = mergeDeep(target[key], source[key]);
-      } else {
-        output[key] = source[key];
-      }
-    });
-  }
-  return output;
-}
-function updateMarkViewAttributes(checkMark, editor, attrs = {}) {
-  const { state: state2 } = editor;
-  const { doc: doc2, tr: tr2 } = state2;
-  const thisMark = checkMark;
-  doc2.descendants((node, pos) => {
-    const from2 = tr2.mapping.map(pos);
-    const to = tr2.mapping.map(pos) + node.nodeSize;
-    let foundMark = null;
-    node.marks.forEach((mark) => {
-      if (mark !== thisMark) {
-        return false;
-      }
-      foundMark = mark;
-    });
-    if (!foundMark) {
-      return;
-    }
-    let needsUpdate = false;
-    Object.keys(attrs).forEach((k2) => {
-      if (attrs[k2] !== foundMark.attrs[k2]) {
-        needsUpdate = true;
-      }
-    });
-    if (needsUpdate) {
-      const updatedMark = checkMark.type.create({
-        ...checkMark.attrs,
-        ...attrs
-      });
-      tr2.removeMark(from2, to, checkMark.type);
-      tr2.addMark(from2, to, updatedMark);
-    }
-  });
-  if (tr2.docChanged) {
-    editor.view.dispatch(tr2);
-  }
-}
 var inputRuleMatcherHandler = (text, find) => {
   if (isRegExp(find)) {
     return find.exec(text);
@@ -107325,6 +106805,28 @@ function inputRulesPlugin(props) {
   });
   return plugin;
 }
+function getType(value) {
+  return Object.prototype.toString.call(value).slice(8, -1);
+}
+function isPlainObject(value) {
+  if (getType(value) !== "Object") {
+    return false;
+  }
+  return value.constructor === Object && Object.getPrototypeOf(value) === Object.prototype;
+}
+function mergeDeep(target, source) {
+  const output = { ...target };
+  if (isPlainObject(target) && isPlainObject(source)) {
+    Object.keys(source).forEach((key) => {
+      if (isPlainObject(source[key]) && isPlainObject(target[key])) {
+        output[key] = mergeDeep(target[key], source[key]);
+      } else {
+        output[key] = source[key];
+      }
+    });
+  }
+  return output;
+}
 var Extendable = class {
   constructor(config2 = {}) {
     this.type = "extendable";
@@ -107420,6 +106922,9 @@ var Mark2 = class _Mark extends Extendable {
     return super.extend(resolvedConfig);
   }
 };
+function isNumber(value) {
+  return typeof value === "number";
+}
 var pasteRuleMatcherHandler = (text, find, event) => {
   if (isRegExp(find)) {
     return [...text.matchAll(find)];
@@ -108711,6 +108216,20 @@ img.ProseMirror-separator {
 .ProseMirror-focused .ProseMirror-gapcursor {
   display: block;
 }`;
+function createStyleTag(style2, nonce, suffix) {
+  const tiptapStyleTag = document.querySelector(`style[data-tiptap-style${suffix ? `-${suffix}` : ""}]`);
+  if (tiptapStyleTag !== null) {
+    return tiptapStyleTag;
+  }
+  const styleNode = document.createElement("style");
+  if (nonce) {
+    styleNode.setAttribute("nonce", nonce);
+  }
+  styleNode.setAttribute(`data-tiptap-style${suffix ? `-${suffix}` : ""}`, "");
+  styleNode.innerHTML = style2;
+  document.getElementsByTagName("head")[0].appendChild(styleNode);
+  return styleNode;
+}
 var Editor$1 = class Editor extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -109290,6 +108809,526 @@ var Editor$1 = class Editor extends EventEmitter {
     return this.$pos(0);
   }
 };
+function escapeForRegEx(string2) {
+  return string2.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+}
+var markdown_exports = {};
+__export(markdown_exports, {
+  createAtomBlockMarkdownSpec: () => createAtomBlockMarkdownSpec,
+  createBlockMarkdownSpec: () => createBlockMarkdownSpec,
+  createInlineMarkdownSpec: () => createInlineMarkdownSpec,
+  parseAttributes: () => parseAttributes,
+  parseIndentedBlocks: () => parseIndentedBlocks,
+  renderNestedMarkdownContent: () => renderNestedMarkdownContent,
+  serializeAttributes: () => serializeAttributes
+});
+function parseAttributes(attrString) {
+  if (!(attrString == null ? void 0 : attrString.trim())) {
+    return {};
+  }
+  const attributes = {};
+  const quotedStrings = [];
+  const tempString = attrString.replace(/["']([^"']*)["']/g, (match) => {
+    quotedStrings.push(match);
+    return `__QUOTED_${quotedStrings.length - 1}__`;
+  });
+  const classMatches = tempString.match(/(?:^|\s)\.([a-zA-Z][\w-]*)/g);
+  if (classMatches) {
+    const classes = classMatches.map((match) => match.trim().slice(1));
+    attributes.class = classes.join(" ");
+  }
+  const idMatch = tempString.match(/(?:^|\s)#([a-zA-Z][\w-]*)/);
+  if (idMatch) {
+    attributes.id = idMatch[1];
+  }
+  const kvRegex = /([a-zA-Z][\w-]*)\s*=\s*(__QUOTED_\d+__)/g;
+  const kvMatches = Array.from(tempString.matchAll(kvRegex));
+  kvMatches.forEach(([, key, quotedRef]) => {
+    var _a2;
+    const quotedIndex = parseInt(((_a2 = quotedRef.match(/__QUOTED_(\d+)__/)) == null ? void 0 : _a2[1]) || "0", 10);
+    const quotedValue = quotedStrings[quotedIndex];
+    if (quotedValue) {
+      attributes[key] = quotedValue.slice(1, -1);
+    }
+  });
+  const cleanString = tempString.replace(/(?:^|\s)\.([a-zA-Z][\w-]*)/g, "").replace(/(?:^|\s)#([a-zA-Z][\w-]*)/g, "").replace(/([a-zA-Z][\w-]*)\s*=\s*__QUOTED_\d+__/g, "").trim();
+  if (cleanString) {
+    const booleanAttrs = cleanString.split(/\s+/).filter(Boolean);
+    booleanAttrs.forEach((attr) => {
+      if (attr.match(/^[a-zA-Z][\w-]*$/)) {
+        attributes[attr] = true;
+      }
+    });
+  }
+  return attributes;
+}
+function serializeAttributes(attributes) {
+  if (!attributes || Object.keys(attributes).length === 0) {
+    return "";
+  }
+  const parts = [];
+  if (attributes.class) {
+    const classes = String(attributes.class).split(/\s+/).filter(Boolean);
+    classes.forEach((cls) => parts.push(`.${cls}`));
+  }
+  if (attributes.id) {
+    parts.push(`#${attributes.id}`);
+  }
+  Object.entries(attributes).forEach(([key, value]) => {
+    if (key === "class" || key === "id") {
+      return;
+    }
+    if (value === true) {
+      parts.push(key);
+    } else if (value !== false && value != null) {
+      parts.push(`${key}="${String(value)}"`);
+    }
+  });
+  return parts.join(" ");
+}
+function createAtomBlockMarkdownSpec(options) {
+  const {
+    nodeName,
+    name: markdownName,
+    parseAttributes: parseAttributes2 = parseAttributes,
+    serializeAttributes: serializeAttributes2 = serializeAttributes,
+    defaultAttributes = {},
+    requiredAttributes = [],
+    allowedAttributes
+  } = options;
+  const blockName = markdownName || nodeName;
+  const filterAttributes = (attrs) => {
+    if (!allowedAttributes) {
+      return attrs;
+    }
+    const filtered = {};
+    allowedAttributes.forEach((key) => {
+      if (key in attrs) {
+        filtered[key] = attrs[key];
+      }
+    });
+    return filtered;
+  };
+  return {
+    parseMarkdown: (token, h2) => {
+      const attrs = { ...defaultAttributes, ...token.attributes };
+      return h2.createNode(nodeName, attrs, []);
+    },
+    markdownTokenizer: {
+      name: nodeName,
+      level: "block",
+      start(src) {
+        var _a2;
+        const regex = new RegExp(`^:::${blockName}(?:\\s|$)`, "m");
+        const index2 = (_a2 = src.match(regex)) == null ? void 0 : _a2.index;
+        return index2 !== void 0 ? index2 : -1;
+      },
+      tokenize(src, _tokens, _lexer) {
+        const regex = new RegExp(`^:::${blockName}(?:\\s+\\{([^}]*)\\})?\\s*:::(?:\\n|$)`);
+        const match = src.match(regex);
+        if (!match) {
+          return void 0;
+        }
+        const attrString = match[1] || "";
+        const attributes = parseAttributes2(attrString);
+        const missingRequired = requiredAttributes.find((required2) => !(required2 in attributes));
+        if (missingRequired) {
+          return void 0;
+        }
+        return {
+          type: nodeName,
+          raw: match[0],
+          attributes
+        };
+      }
+    },
+    renderMarkdown: (node) => {
+      const filteredAttrs = filterAttributes(node.attrs || {});
+      const attrs = serializeAttributes2(filteredAttrs);
+      const attrString = attrs ? ` {${attrs}}` : "";
+      return `:::${blockName}${attrString} :::`;
+    }
+  };
+}
+function createBlockMarkdownSpec(options) {
+  const {
+    nodeName,
+    name: markdownName,
+    getContent,
+    parseAttributes: parseAttributes2 = parseAttributes,
+    serializeAttributes: serializeAttributes2 = serializeAttributes,
+    defaultAttributes = {},
+    content = "block",
+    allowedAttributes
+  } = options;
+  const blockName = markdownName || nodeName;
+  const filterAttributes = (attrs) => {
+    if (!allowedAttributes) {
+      return attrs;
+    }
+    const filtered = {};
+    allowedAttributes.forEach((key) => {
+      if (key in attrs) {
+        filtered[key] = attrs[key];
+      }
+    });
+    return filtered;
+  };
+  return {
+    parseMarkdown: (token, h2) => {
+      let nodeContent;
+      if (getContent) {
+        const contentResult = getContent(token);
+        nodeContent = typeof contentResult === "string" ? [{ type: "text", text: contentResult }] : contentResult;
+      } else if (content === "block") {
+        nodeContent = h2.parseChildren(token.tokens || []);
+      } else {
+        nodeContent = h2.parseInline(token.tokens || []);
+      }
+      const attrs = { ...defaultAttributes, ...token.attributes };
+      return h2.createNode(nodeName, attrs, nodeContent);
+    },
+    markdownTokenizer: {
+      name: nodeName,
+      level: "block",
+      start(src) {
+        var _a2;
+        const regex = new RegExp(`^:::${blockName}`, "m");
+        const index2 = (_a2 = src.match(regex)) == null ? void 0 : _a2.index;
+        return index2 !== void 0 ? index2 : -1;
+      },
+      tokenize(src, _tokens, lexer) {
+        var _a2;
+        const openingRegex = new RegExp(`^:::${blockName}(?:\\s+\\{([^}]*)\\})?\\s*\\n`);
+        const openingMatch = src.match(openingRegex);
+        if (!openingMatch) {
+          return void 0;
+        }
+        const [openingTag, attrString = ""] = openingMatch;
+        const attributes = parseAttributes2(attrString);
+        let level2 = 1;
+        const position = openingTag.length;
+        let matchedContent = "";
+        const blockPattern = /^:::([\w-]*)(\s.*)?/gm;
+        const remaining = src.slice(position);
+        blockPattern.lastIndex = 0;
+        for (; ; ) {
+          const match = blockPattern.exec(remaining);
+          if (match === null) {
+            break;
+          }
+          const matchPos = match.index;
+          const blockType = match[1];
+          if ((_a2 = match[2]) == null ? void 0 : _a2.endsWith(":::")) {
+            continue;
+          }
+          if (blockType) {
+            level2 += 1;
+          } else {
+            level2 -= 1;
+            if (level2 === 0) {
+              const rawContent = remaining.slice(0, matchPos);
+              matchedContent = rawContent.trim();
+              const fullMatch = src.slice(0, position + matchPos + match[0].length);
+              let contentTokens = [];
+              if (matchedContent) {
+                if (content === "block") {
+                  contentTokens = lexer.blockTokens(rawContent);
+                  contentTokens.forEach((token) => {
+                    if (token.text && (!token.tokens || token.tokens.length === 0)) {
+                      token.tokens = lexer.inlineTokens(token.text);
+                    }
+                  });
+                  while (contentTokens.length > 0) {
+                    const lastToken = contentTokens[contentTokens.length - 1];
+                    if (lastToken.type === "paragraph" && (!lastToken.text || lastToken.text.trim() === "")) {
+                      contentTokens.pop();
+                    } else {
+                      break;
+                    }
+                  }
+                } else {
+                  contentTokens = lexer.inlineTokens(matchedContent);
+                }
+              }
+              return {
+                type: nodeName,
+                raw: fullMatch,
+                attributes,
+                content: matchedContent,
+                tokens: contentTokens
+              };
+            }
+          }
+        }
+        return void 0;
+      }
+    },
+    renderMarkdown: (node, h2) => {
+      const filteredAttrs = filterAttributes(node.attrs || {});
+      const attrs = serializeAttributes2(filteredAttrs);
+      const attrString = attrs ? ` {${attrs}}` : "";
+      const renderedContent = h2.renderChildren(node.content || [], "\n\n");
+      return `:::${blockName}${attrString}
+
+${renderedContent}
+
+:::`;
+    }
+  };
+}
+function parseShortcodeAttributes(attrString) {
+  if (!attrString.trim()) {
+    return {};
+  }
+  const attributes = {};
+  const regex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
+  let match = regex.exec(attrString);
+  while (match !== null) {
+    const [, key, doubleQuoted, singleQuoted] = match;
+    attributes[key] = doubleQuoted || singleQuoted;
+    match = regex.exec(attrString);
+  }
+  return attributes;
+}
+function serializeShortcodeAttributes(attrs) {
+  return Object.entries(attrs).filter(([, value]) => value !== void 0 && value !== null).map(([key, value]) => `${key}="${value}"`).join(" ");
+}
+function createInlineMarkdownSpec(options) {
+  const {
+    nodeName,
+    name: shortcodeName,
+    getContent,
+    parseAttributes: parseAttributes2 = parseShortcodeAttributes,
+    serializeAttributes: serializeAttributes2 = serializeShortcodeAttributes,
+    defaultAttributes = {},
+    selfClosing = false,
+    allowedAttributes
+  } = options;
+  const shortcode = shortcodeName || nodeName;
+  const filterAttributes = (attrs) => {
+    if (!allowedAttributes) {
+      return attrs;
+    }
+    const filtered = {};
+    allowedAttributes.forEach((attr) => {
+      const attrName = typeof attr === "string" ? attr : attr.name;
+      const skipIfDefault = typeof attr === "string" ? void 0 : attr.skipIfDefault;
+      if (attrName in attrs) {
+        const value = attrs[attrName];
+        if (skipIfDefault !== void 0 && value === skipIfDefault) {
+          return;
+        }
+        filtered[attrName] = value;
+      }
+    });
+    return filtered;
+  };
+  const escapedShortcode = shortcode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return {
+    parseMarkdown: (token, h2) => {
+      const attrs = { ...defaultAttributes, ...token.attributes };
+      if (selfClosing) {
+        return h2.createNode(nodeName, attrs);
+      }
+      const content = getContent ? getContent(token) : token.content || "";
+      if (content) {
+        return h2.createNode(nodeName, attrs, [h2.createTextNode(content)]);
+      }
+      return h2.createNode(nodeName, attrs, []);
+    },
+    markdownTokenizer: {
+      name: nodeName,
+      level: "inline",
+      start(src) {
+        const startPattern = selfClosing ? new RegExp(`\\[${escapedShortcode}\\s*[^\\]]*\\]`) : new RegExp(`\\[${escapedShortcode}\\s*[^\\]]*\\][\\s\\S]*?\\[\\/${escapedShortcode}\\]`);
+        const match = src.match(startPattern);
+        const index2 = match == null ? void 0 : match.index;
+        return index2 !== void 0 ? index2 : -1;
+      },
+      tokenize(src, _tokens, _lexer) {
+        const tokenPattern = selfClosing ? new RegExp(`^\\[${escapedShortcode}\\s*([^\\]]*)\\]`) : new RegExp(
+          `^\\[${escapedShortcode}\\s*([^\\]]*)\\]([\\s\\S]*?)\\[\\/${escapedShortcode}\\]`
+        );
+        const match = src.match(tokenPattern);
+        if (!match) {
+          return void 0;
+        }
+        let content = "";
+        let attrString = "";
+        if (selfClosing) {
+          const [, attrs] = match;
+          attrString = attrs;
+        } else {
+          const [, attrs, contentMatch] = match;
+          attrString = attrs;
+          content = contentMatch || "";
+        }
+        const attributes = parseAttributes2(attrString.trim());
+        return {
+          type: nodeName,
+          raw: match[0],
+          content: content.trim(),
+          attributes
+        };
+      }
+    },
+    renderMarkdown: (node) => {
+      let content = "";
+      if (getContent) {
+        content = getContent(node);
+      } else if (node.content && node.content.length > 0) {
+        content = node.content.filter((child) => child.type === "text").map((child) => child.text).join("");
+      }
+      const filteredAttrs = filterAttributes(node.attrs || {});
+      const attrs = serializeAttributes2(filteredAttrs);
+      const attrString = attrs ? ` ${attrs}` : "";
+      if (selfClosing) {
+        return `[${shortcode}${attrString}]`;
+      }
+      return `[${shortcode}${attrString}]${content}[/${shortcode}]`;
+    }
+  };
+}
+function parseIndentedBlocks(src, config2, lexer) {
+  var _a2, _b2, _c, _d;
+  const lines = src.split("\n");
+  const items = [];
+  let totalRaw = "";
+  let i = 0;
+  const baseIndentSize = config2.baseIndentSize || 2;
+  while (i < lines.length) {
+    const currentLine = lines[i];
+    const itemMatch = currentLine.match(config2.itemPattern);
+    if (!itemMatch) {
+      if (items.length > 0) {
+        break;
+      } else if (currentLine.trim() === "") {
+        i += 1;
+        totalRaw = `${totalRaw}${currentLine}
+`;
+        continue;
+      } else {
+        return void 0;
+      }
+    }
+    const itemData = config2.extractItemData(itemMatch);
+    const { indentLevel, mainContent } = itemData;
+    totalRaw = `${totalRaw}${currentLine}
+`;
+    const itemContent = [mainContent];
+    i += 1;
+    while (i < lines.length) {
+      const nextLine = lines[i];
+      if (nextLine.trim() === "") {
+        const nextNonEmptyIndex = lines.slice(i + 1).findIndex((l) => l.trim() !== "");
+        if (nextNonEmptyIndex === -1) {
+          break;
+        }
+        const nextNonEmpty = lines[i + 1 + nextNonEmptyIndex];
+        const nextIndent2 = ((_b2 = (_a2 = nextNonEmpty.match(/^(\s*)/)) == null ? void 0 : _a2[1]) == null ? void 0 : _b2.length) || 0;
+        if (nextIndent2 > indentLevel) {
+          itemContent.push(nextLine);
+          totalRaw = `${totalRaw}${nextLine}
+`;
+          i += 1;
+          continue;
+        } else {
+          break;
+        }
+      }
+      const nextIndent = ((_d = (_c = nextLine.match(/^(\s*)/)) == null ? void 0 : _c[1]) == null ? void 0 : _d.length) || 0;
+      if (nextIndent > indentLevel) {
+        itemContent.push(nextLine);
+        totalRaw = `${totalRaw}${nextLine}
+`;
+        i += 1;
+      } else {
+        break;
+      }
+    }
+    let nestedTokens;
+    const nestedContent = itemContent.slice(1);
+    if (nestedContent.length > 0) {
+      const dedentedNested = nestedContent.map((nestedLine) => nestedLine.slice(indentLevel + baseIndentSize)).join("\n");
+      if (dedentedNested.trim()) {
+        if (config2.customNestedParser) {
+          nestedTokens = config2.customNestedParser(dedentedNested);
+        } else {
+          nestedTokens = lexer.blockTokens(dedentedNested);
+        }
+      }
+    }
+    const token = config2.createToken(itemData, nestedTokens);
+    items.push(token);
+  }
+  if (items.length === 0) {
+    return void 0;
+  }
+  return {
+    items,
+    raw: totalRaw
+  };
+}
+function renderNestedMarkdownContent(node, h2, prefixOrGenerator, ctx) {
+  if (!node || !Array.isArray(node.content)) {
+    return "";
+  }
+  const prefix = typeof prefixOrGenerator === "function" ? prefixOrGenerator(ctx) : prefixOrGenerator;
+  const [content, ...children] = node.content;
+  const mainContent = h2.renderChildren([content]);
+  let output = `${prefix}${mainContent}`;
+  if (children && children.length > 0) {
+    children.forEach((child, index2) => {
+      var _a2, _b2;
+      const childContent = (_b2 = (_a2 = h2.renderChild) == null ? void 0 : _a2.call(h2, child, index2 + 1)) != null ? _b2 : h2.renderChildren([child]);
+      if (childContent !== void 0 && childContent !== null) {
+        const indentedChild = childContent.split("\n").map((line) => line ? h2.indent(line) : h2.indent("")).join("\n");
+        output += child.type === "paragraph" ? `
+
+${indentedChild}` : `
+${indentedChild}`;
+      }
+    });
+  }
+  return output;
+}
+function updateMarkViewAttributes(checkMark, editor, attrs = {}) {
+  const { state: state2 } = editor;
+  const { doc: doc2, tr: tr2 } = state2;
+  const thisMark = checkMark;
+  doc2.descendants((node, pos) => {
+    const from2 = tr2.mapping.map(pos);
+    const to = tr2.mapping.map(pos) + node.nodeSize;
+    let foundMark = null;
+    node.marks.forEach((mark) => {
+      if (mark !== thisMark) {
+        return false;
+      }
+      foundMark = mark;
+    });
+    if (!foundMark) {
+      return;
+    }
+    let needsUpdate = false;
+    Object.keys(attrs).forEach((k2) => {
+      if (attrs[k2] !== foundMark.attrs[k2]) {
+        needsUpdate = true;
+      }
+    });
+    if (needsUpdate) {
+      const updatedMark = checkMark.type.create({
+        ...checkMark.attrs,
+        ...attrs
+      });
+      tr2.removeMark(from2, to, checkMark.type);
+      tr2.addMark(from2, to, updatedMark);
+    }
+  });
+  if (tr2.docChanged) {
+    editor.view.dispatch(tr2);
+  }
+}
 var Node3 = class _Node extends Extendable {
   constructor() {
     super(...arguments);
@@ -109710,555 +109749,6 @@ function hasInsertedWhitespace(transaction) {
     return /\s/.test(inserted);
   });
 }
-function getAnchorClientRect(editor) {
-  return () => {
-    const pos = editor.state.selection.$anchor.pos;
-    const coords = editor.view.coordsAtPos(pos);
-    const { top: top2, right: right2, bottom: bottom2, left: left2 } = coords;
-    try {
-      return new DOMRect(left2, top2, right2 - left2, bottom2 - top2);
-    } catch {
-      return null;
-    }
-  };
-}
-function clientRectFor(editor, view, decorationNode, pluginKey) {
-  if (!decorationNode) {
-    return getAnchorClientRect(editor);
-  }
-  return () => {
-    const state2 = pluginKey.getState(editor.state);
-    const decorationId = state2 == null ? void 0 : state2.decorationId;
-    const currentDecorationNode = view.dom.querySelector(`[data-decoration-id="${decorationId}"]`);
-    return (currentDecorationNode == null ? void 0 : currentDecorationNode.getBoundingClientRect()) || null;
-  };
-}
-function shouldKeepDismissed({
-  match,
-  dismissedRange,
-  state: state2,
-  transaction,
-  editor,
-  shouldResetDismissed,
-  effectiveAllowSpaces
-}) {
-  if (shouldResetDismissed == null ? void 0 : shouldResetDismissed({
-    editor,
-    state: state2,
-    range: dismissedRange,
-    match,
-    transaction,
-    allowSpaces: effectiveAllowSpaces
-  })) {
-    return false;
-  }
-  if (effectiveAllowSpaces) {
-    return match.range.from === dismissedRange.from;
-  }
-  return match.range.from === dismissedRange.from && !hasInsertedWhitespace(transaction);
-}
-function dispatchExit({
-  view,
-  pluginKeyRef
-}) {
-  const tr2 = view.state.tr.setMeta(pluginKeyRef, { exit: true });
-  view.dispatch(tr2);
-}
-function createSuggestionProps({
-  pluginKey,
-  decorationTag,
-  decorationClass,
-  decorationContent,
-  decorationEmptyClass,
-  renderer: renderer2,
-  dispatchExit: dispatchExit2
-}) {
-  return {
-    /**
-     * Call the keydown hook if suggestion is active.
-     */
-    handleKeyDown(view, event) {
-      var _a2, _b2;
-      const state2 = pluginKey.getState(view.state);
-      if (!state2.active) {
-        return false;
-      }
-      if (event.key === "Escape" || event.key === "Esc") {
-        (_a2 = renderer2 == null ? void 0 : renderer2.onKeyDown) == null ? void 0 : _a2.call(renderer2, { view, event, range: state2.range });
-        dispatchExit2(view);
-        return true;
-      }
-      const handled = ((_b2 = renderer2 == null ? void 0 : renderer2.onKeyDown) == null ? void 0 : _b2.call(renderer2, { view, event, range: state2.range })) || false;
-      return handled;
-    },
-    /**
-     * Setup decorator on the currently active suggestion.
-     */
-    decorations(state2) {
-      const pluginState = pluginKey.getState(state2);
-      const { active: active2, range, decorationId, query } = pluginState;
-      if (!active2) {
-        return null;
-      }
-      const isEmpty = !(query == null ? void 0 : query.length);
-      const classNames = [decorationClass];
-      if (isEmpty) {
-        classNames.push(decorationEmptyClass);
-      }
-      return DecorationSet.create(state2.doc, [
-        Decoration.inline(range.from, range.to, {
-          nodeName: decorationTag,
-          class: classNames.join(" "),
-          "data-decoration-id": decorationId || void 0,
-          "data-decoration-content": decorationContent
-        })
-      ]);
-    }
-  };
-}
-function createSuggestionState({
-  editor,
-  char,
-  effectiveAllowSpaces,
-  allowToIncludeChar,
-  allowedPrefixes,
-  startOfLine,
-  findSuggestionMatch: findSuggestionMatch2,
-  allow,
-  shouldShow,
-  shouldKeepDismissed: shouldKeepDismissed2,
-  pluginKey
-}) {
-  return {
-    /**
-     * Initialize the plugin's internal state.
-     */
-    init() {
-      return {
-        active: false,
-        range: { from: 0, to: 0 },
-        query: null,
-        text: null,
-        composing: false,
-        dismissedRange: null
-      };
-    },
-    /**
-     * Apply changes to the plugin state from a view transaction.
-     */
-    apply(transaction, prev, _oldState, state2) {
-      const { isEditable } = editor;
-      const { composing } = editor.view;
-      const { selection } = transaction;
-      const { empty: empty2, from: from2 } = selection;
-      const next = { ...prev };
-      const meta = transaction.getMeta(pluginKey);
-      if (meta && meta.exit) {
-        next.active = false;
-        next.decorationId = null;
-        next.range = { from: 0, to: 0 };
-        next.query = null;
-        next.text = null;
-        next.dismissedRange = prev.active ? { ...prev.range } : prev.dismissedRange;
-        return next;
-      }
-      next.composing = composing;
-      if (transaction.docChanged && next.dismissedRange !== null) {
-        next.dismissedRange = {
-          from: transaction.mapping.map(next.dismissedRange.from),
-          to: transaction.mapping.map(next.dismissedRange.to)
-        };
-      }
-      if (isEditable && (empty2 || editor.view.composing)) {
-        if ((from2 < prev.range.from || from2 > prev.range.to) && !composing && !prev.composing) {
-          next.active = false;
-        }
-        const match = findSuggestionMatch2({
-          char,
-          allowSpaces: effectiveAllowSpaces,
-          allowToIncludeChar,
-          allowedPrefixes,
-          startOfLine,
-          $position: selection.$from
-        });
-        const decorationId = `id_${Math.floor(Math.random() * 4294967295)}`;
-        if (match && allow({
-          editor,
-          state: state2,
-          range: match.range,
-          isActive: prev.active
-        }) && (!shouldShow || shouldShow({
-          editor,
-          range: match.range,
-          query: match.query,
-          text: match.text,
-          transaction
-        }))) {
-          if (next.dismissedRange !== null && !shouldKeepDismissed2({
-            match,
-            dismissedRange: next.dismissedRange,
-            state: state2,
-            transaction
-          })) {
-            next.dismissedRange = null;
-          }
-          if (next.dismissedRange === null) {
-            next.active = true;
-            next.decorationId = prev.decorationId || decorationId;
-            next.range = match.range;
-            next.query = match.query;
-            next.text = match.text;
-          } else {
-            next.active = false;
-          }
-        } else {
-          if (!match) {
-            next.dismissedRange = null;
-          }
-          next.active = false;
-        }
-      } else {
-        next.active = false;
-      }
-      if (!next.active) {
-        next.decorationId = null;
-        next.range = { from: 0, to: 0 };
-        next.query = null;
-        next.text = null;
-      }
-      return next;
-    }
-  };
-}
-function createSuggestionAsyncRequestManager({
-  editor,
-  items
-}) {
-  let abortController = null;
-  let debounceTimer = null;
-  let debounceResolve = null;
-  const clearDebounceTimer = () => {
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    debounceResolve == null ? void 0 : debounceResolve();
-    debounceResolve = null;
-  };
-  const waitForDebounce = (delay) => {
-    return new Promise((resolve2) => {
-      debounceResolve = resolve2;
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        const pendingResolve = debounceResolve;
-        debounceResolve = null;
-        pendingResolve == null ? void 0 : pendingResolve();
-      }, delay);
-    });
-  };
-  const abort = () => {
-    abortController == null ? void 0 : abortController.abort();
-    clearDebounceTimer();
-    abortController = null;
-  };
-  const fetch2 = async (query, debounce2) => {
-    abort();
-    abortController = new AbortController();
-    const controller = abortController;
-    if (debounce2 > 0) {
-      await waitForDebounce(debounce2);
-    }
-    if (abortController !== controller || controller.signal.aborted) {
-      return { status: "aborted" };
-    }
-    try {
-      const result = await items({
-        editor,
-        query,
-        signal: controller.signal
-      });
-      if (abortController !== controller || controller.signal.aborted) {
-        return { status: "aborted" };
-      }
-      return { status: "resolved", items: result };
-    } catch {
-      if (abortController !== controller || controller.signal.aborted) {
-        return { status: "aborted" };
-      }
-      return { status: "error" };
-    }
-  };
-  return {
-    abort,
-    fetch: fetch2
-  };
-}
-function createSuggestionFloatingUiConfig({
-  placement,
-  offset: offset2,
-  flip: flip2,
-  floatingUi
-}) {
-  var _a2, _b2, _c, _d;
-  const middleware = [
-    offset$2({
-      mainAxis: (_a2 = offset2.mainAxis) != null ? _a2 : 4,
-      crossAxis: (_b2 = offset2.crossAxis) != null ? _b2 : 0
-    })
-  ];
-  if (flip2) {
-    middleware.push(flip$2());
-  }
-  if ((_c = floatingUi == null ? void 0 : floatingUi.middleware) == null ? void 0 : _c.length) {
-    middleware.push(...floatingUi.middleware);
-  }
-  return {
-    placement,
-    strategy: (_d = floatingUi == null ? void 0 : floatingUi.strategy) != null ? _d : "absolute",
-    middleware
-  };
-}
-function resolveContainer(container) {
-  if (container instanceof HTMLElement) {
-    return container;
-  }
-  if (typeof container === "string") {
-    try {
-      const found2 = document.querySelector(container);
-      if (found2) {
-        return found2;
-      }
-    } catch {
-      return document.body;
-    }
-  }
-  return document.body;
-}
-function createMount({
-  getReferenceRect,
-  contextElement,
-  config: config2,
-  container,
-  dismissOnOutsideClick,
-  dismiss
-}) {
-  return (element, options = {}) => {
-    const reference2 = {
-      getBoundingClientRect: () => {
-        var _a2;
-        return (_a2 = getReferenceRect()) != null ? _a2 : new DOMRect();
-      },
-      contextElement
-    };
-    let positioned = false;
-    const mountedByUs = !element.isConnected;
-    if (mountedByUs) {
-      resolveContainer(container).appendChild(element);
-    }
-    if (!options.onPosition) {
-      element.style.visibility = "hidden";
-      element.style.width = "max-content";
-    }
-    const update = () => {
-      computePosition(reference2, element, {
-        placement: config2.placement,
-        strategy: config2.strategy,
-        middleware: config2.middleware
-      }).then(({ x, y, placement, strategy }) => {
-        if (options.onPosition) {
-          options.onPosition({ x, y, placement, strategy });
-          return;
-        }
-        Object.assign(element.style, {
-          position: strategy,
-          left: `${x}px`,
-          top: `${y}px`
-        });
-        if (!positioned) {
-          positioned = true;
-          element.style.visibility = "";
-        }
-      });
-    };
-    const cleanupAutoUpdate = autoUpdate(reference2, element, update, options.autoUpdate);
-    let onOutsidePointerDown;
-    if (dismissOnOutsideClick) {
-      onOutsidePointerDown = (event) => {
-        const target = event.target;
-        if (!(target instanceof Node) || element.contains(target) || contextElement.contains(target)) {
-          return;
-        }
-        dismiss();
-      };
-      document.addEventListener("pointerdown", onOutsidePointerDown, true);
-    }
-    return () => {
-      cleanupAutoUpdate();
-      if (onOutsidePointerDown) {
-        document.removeEventListener("pointerdown", onOutsidePointerDown, true);
-      }
-      if (mountedByUs) {
-        element.remove();
-      }
-    };
-  };
-}
-function createSuggestionView({
-  editor,
-  pluginKey,
-  items,
-  renderer: renderer2,
-  minQueryLength,
-  debounce: debounce2,
-  initialItems,
-  placement,
-  offset: offsetOption,
-  container,
-  flip: flip2,
-  floatingUi,
-  dismissOnOutsideClick,
-  command: command2,
-  clientRectFor: clientRectFor2,
-  dispatchExit: dispatchExit2
-}) {
-  let props;
-  const asyncRequest = createSuggestionAsyncRequestManager({
-    editor,
-    items
-  });
-  const floatingUiConfig = createSuggestionFloatingUiConfig({
-    placement,
-    offset: offsetOption,
-    flip: flip2,
-    floatingUi
-  });
-  function dispatchStateUpdate(state2, dispatchProps) {
-    var _a2, _b2, _c;
-    switch (state2) {
-      case "started":
-        (_a2 = renderer2 == null ? void 0 : renderer2.onStart) == null ? void 0 : _a2.call(renderer2, dispatchProps);
-        break;
-      case "updated":
-        (_b2 = renderer2 == null ? void 0 : renderer2.onUpdate) == null ? void 0 : _b2.call(renderer2, dispatchProps);
-        break;
-      case "stopped":
-        (_c = renderer2 == null ? void 0 : renderer2.onExit) == null ? void 0 : _c.call(renderer2, dispatchProps);
-        break;
-    }
-  }
-  return {
-    update: async (view, prevState) => {
-      var _a2, _b2, _c, _d;
-      const prev = pluginKey.getState(prevState);
-      const next = pluginKey.getState(view.state);
-      if (!prev || !next) {
-        return;
-      }
-      let currentState = null;
-      const queryChanged = prev.query !== next.query;
-      const textChanged = prev.text !== next.text;
-      const rangeChanged = prev.range.from !== next.range.from || prev.range.to !== next.range.to;
-      const effectiveQueryChanged = queryChanged || textChanged || rangeChanged;
-      if (!prev.active && next.active) {
-        currentState = "started";
-      } else if (prev.active && !next.active) {
-        currentState = "stopped";
-      } else if (next.active && effectiveQueryChanged) {
-        currentState = "updated";
-      } else {
-        return;
-      }
-      const state2 = currentState === "stopped" ? prev : next;
-      const decorationNode = view.dom.querySelector(`[data-decoration-id="${state2.decorationId}"]`);
-      const clientRect2 = clientRectFor2(view, decorationNode);
-      const exceedsMinQueryLength = minQueryLength === 0 || (state2.query ? state2.query.length >= minQueryLength : false);
-      const willFetch = (currentState === "started" || currentState === "updated") && exceedsMinQueryLength;
-      props = {
-        editor,
-        range: state2.range,
-        query: state2.query || "",
-        text: state2.text || "",
-        items: initialItems != null ? initialItems : [],
-        command: (commandProps) => {
-          return command2({
-            editor,
-            range: state2.range,
-            props: commandProps
-          });
-        },
-        decorationNode,
-        clientRect: clientRect2,
-        loading: willFetch,
-        placement,
-        offset: { mainAxis: (_a2 = offsetOption.mainAxis) != null ? _a2 : 4, crossAxis: (_b2 = offsetOption.crossAxis) != null ? _b2 : 0 },
-        container,
-        flip: flip2,
-        floatingUi: floatingUiConfig,
-        mount: createMount({
-          getReferenceRect: clientRect2,
-          contextElement: view.dom,
-          config: floatingUiConfig,
-          container,
-          dismissOnOutsideClick,
-          dismiss: () => dispatchExit2(editor.view)
-        })
-      };
-      if (currentState === "started") {
-        (_c = renderer2 == null ? void 0 : renderer2.onBeforeStart) == null ? void 0 : _c.call(renderer2, props);
-      }
-      if (currentState === "updated") {
-        (_d = renderer2 == null ? void 0 : renderer2.onBeforeUpdate) == null ? void 0 : _d.call(renderer2, props);
-      }
-      if (currentState === "started") {
-        dispatchStateUpdate(currentState, props);
-      }
-      if (currentState === "started" || currentState === "updated") {
-        if (!willFetch) {
-          asyncRequest.abort();
-          props = { ...props, items: initialItems != null ? initialItems : [], loading: false };
-        } else {
-          props = { ...props, items: initialItems != null ? initialItems : [], loading: true };
-          currentState = "updated";
-          dispatchStateUpdate(currentState, props);
-          const result = await asyncRequest.fetch(state2.query || "", debounce2);
-          if (result.status === "aborted") {
-            return;
-          }
-          const currentPluginState = pluginKey.getState(view.state);
-          if (!(currentPluginState == null ? void 0 : currentPluginState.active)) {
-            asyncRequest.abort();
-            return;
-          }
-          props = result.status === "resolved" ? {
-            ...props,
-            items: result.items,
-            loading: false
-          } : {
-            ...props,
-            loading: false
-          };
-        }
-      }
-      if (currentState === "stopped") {
-        asyncRequest.abort();
-        dispatchStateUpdate(currentState, props);
-        props = void 0;
-        return;
-      }
-      if (currentState === "updated") {
-        dispatchStateUpdate(currentState, props);
-      }
-    },
-    destroy: () => {
-      var _a2;
-      asyncRequest.abort();
-      if (!props) {
-        return;
-      }
-      (_a2 = renderer2 == null ? void 0 : renderer2.onExit) == null ? void 0 : _a2.call(renderer2, props);
-    }
-  };
-}
 var SuggestionPluginKey = new PluginKey("suggestion");
 function Suggestion({
   pluginKey = SuggestionPluginKey,
@@ -110274,79 +109764,294 @@ function Suggestion({
   decorationEmptyClass = "is-empty",
   command: command2 = () => null,
   items = () => [],
-  minQueryLength = 0,
-  debounce: debounce2 = 0,
-  initialItems,
-  placement = "bottom-start",
-  offset: offsetOption = {},
-  container,
-  flip: flip2 = true,
-  floatingUi,
-  dismissOnOutsideClick = true,
   render: render2 = () => ({}),
   allow = () => true,
   findSuggestionMatch: findSuggestionMatch2 = findSuggestionMatch,
   shouldShow,
   shouldResetDismissed
 }) {
+  let props;
   const renderer2 = render2 == null ? void 0 : render2();
   const effectiveAllowSpaces = allowSpaces && !allowToIncludeChar;
-  const clientRectFor2 = (view, decorationNode) => clientRectFor(editor, view, decorationNode, pluginKey);
-  function shouldKeepDismissed2(props) {
-    return shouldKeepDismissed({
-      ...props,
+  const getAnchorClientRect = () => {
+    const pos = editor.state.selection.$anchor.pos;
+    const coords = editor.view.coordsAtPos(pos);
+    const { top: top2, right: right2, bottom: bottom2, left: left2 } = coords;
+    try {
+      return new DOMRect(left2, top2, right2 - left2, bottom2 - top2);
+    } catch {
+      return null;
+    }
+  };
+  const clientRectFor = (view, decorationNode) => {
+    if (!decorationNode) {
+      return getAnchorClientRect;
+    }
+    return () => {
+      const state2 = pluginKey.getState(editor.state);
+      const decorationId = state2 == null ? void 0 : state2.decorationId;
+      const currentDecorationNode = view.dom.querySelector(`[data-decoration-id="${decorationId}"]`);
+      return (currentDecorationNode == null ? void 0 : currentDecorationNode.getBoundingClientRect()) || null;
+    };
+  };
+  const shouldKeepDismissed = ({
+    match,
+    dismissedRange,
+    state: state2,
+    transaction
+  }) => {
+    if (shouldResetDismissed == null ? void 0 : shouldResetDismissed({
       editor,
-      shouldResetDismissed,
-      effectiveAllowSpaces
-    });
+      state: state2,
+      range: dismissedRange,
+      match,
+      transaction,
+      allowSpaces: effectiveAllowSpaces
+    })) {
+      return false;
+    }
+    if (effectiveAllowSpaces) {
+      return match.range.from === dismissedRange.from;
+    }
+    return match.range.from === dismissedRange.from && !hasInsertedWhitespace(transaction);
+  };
+  function dispatchExit(view, pluginKeyRef) {
+    var _a2;
+    try {
+      const state2 = pluginKey.getState(view.state);
+      const decorationNode = (state2 == null ? void 0 : state2.decorationId) ? view.dom.querySelector(`[data-decoration-id="${state2.decorationId}"]`) : null;
+      const exitProps = {
+        // @ts-ignore editor is available in closure
+        editor,
+        range: (state2 == null ? void 0 : state2.range) || { from: 0, to: 0 },
+        query: (state2 == null ? void 0 : state2.query) || null,
+        text: (state2 == null ? void 0 : state2.text) || null,
+        items: [],
+        command: (commandProps) => {
+          return command2({
+            editor,
+            range: (state2 == null ? void 0 : state2.range) || { from: 0, to: 0 },
+            props: commandProps
+          });
+        },
+        decorationNode,
+        clientRect: clientRectFor(view, decorationNode)
+      };
+      (_a2 = renderer2 == null ? void 0 : renderer2.onExit) == null ? void 0 : _a2.call(renderer2, exitProps);
+    } catch {
+    }
+    const tr2 = view.state.tr.setMeta(pluginKeyRef, { exit: true });
+    view.dispatch(tr2);
   }
-  const dispatchExit2 = (view) => dispatchExit({
-    view,
-    pluginKeyRef: pluginKey
-  });
-  return new Plugin({
+  const plugin = new Plugin({
     key: pluginKey,
-    view: () => createSuggestionView({
-      editor,
-      pluginKey,
-      items,
-      renderer: renderer2,
-      minQueryLength,
-      debounce: debounce2,
-      initialItems,
-      placement,
-      offset: offsetOption,
-      container,
-      flip: flip2,
-      floatingUi,
-      dismissOnOutsideClick,
-      command: command2,
-      clientRectFor: clientRectFor2,
-      dispatchExit: dispatchExit2
-    }),
-    state: createSuggestionState({
-      editor,
-      char,
-      effectiveAllowSpaces,
-      allowToIncludeChar,
-      allowedPrefixes,
-      startOfLine,
-      findSuggestionMatch: findSuggestionMatch2,
-      allow,
-      shouldShow,
-      shouldKeepDismissed: shouldKeepDismissed2,
-      pluginKey
-    }),
-    props: createSuggestionProps({
-      pluginKey,
-      decorationTag,
-      decorationClass,
-      decorationContent,
-      decorationEmptyClass,
-      renderer: renderer2,
-      dispatchExit: dispatchExit2
-    })
+    view() {
+      return {
+        update: async (view, prevState) => {
+          var _a2, _b2, _c, _d, _e2, _f, _g;
+          const prev = (_a2 = this.key) == null ? void 0 : _a2.getState(prevState);
+          const next = (_b2 = this.key) == null ? void 0 : _b2.getState(view.state);
+          const moved = prev.active && next.active && prev.range.from !== next.range.from;
+          const started = !prev.active && next.active;
+          const stopped = prev.active && !next.active;
+          const changed = !started && !stopped && prev.query !== next.query;
+          const handleStart = started || moved && changed;
+          const handleChange = changed || moved;
+          const handleExit = stopped || moved && changed;
+          if (!handleStart && !handleChange && !handleExit) {
+            return;
+          }
+          const state2 = handleExit && !handleStart ? prev : next;
+          const decorationNode = view.dom.querySelector(
+            `[data-decoration-id="${state2.decorationId}"]`
+          );
+          props = {
+            editor,
+            range: state2.range,
+            query: state2.query,
+            text: state2.text,
+            items: [],
+            command: (commandProps) => {
+              return command2({
+                editor,
+                range: state2.range,
+                props: commandProps
+              });
+            },
+            decorationNode,
+            clientRect: clientRectFor(view, decorationNode)
+          };
+          if (handleStart) {
+            (_c = renderer2 == null ? void 0 : renderer2.onBeforeStart) == null ? void 0 : _c.call(renderer2, props);
+          }
+          if (handleChange) {
+            (_d = renderer2 == null ? void 0 : renderer2.onBeforeUpdate) == null ? void 0 : _d.call(renderer2, props);
+          }
+          if (handleChange || handleStart) {
+            props.items = await items({
+              editor,
+              query: state2.query
+            });
+          }
+          if (handleExit) {
+            (_e2 = renderer2 == null ? void 0 : renderer2.onExit) == null ? void 0 : _e2.call(renderer2, props);
+          }
+          if (handleChange) {
+            (_f = renderer2 == null ? void 0 : renderer2.onUpdate) == null ? void 0 : _f.call(renderer2, props);
+          }
+          if (handleStart) {
+            (_g = renderer2 == null ? void 0 : renderer2.onStart) == null ? void 0 : _g.call(renderer2, props);
+          }
+        },
+        destroy: () => {
+          var _a2;
+          if (!props) {
+            return;
+          }
+          (_a2 = renderer2 == null ? void 0 : renderer2.onExit) == null ? void 0 : _a2.call(renderer2, props);
+        }
+      };
+    },
+    state: {
+      // Initialize the plugin's internal state.
+      init() {
+        const state2 = {
+          active: false,
+          range: {
+            from: 0,
+            to: 0
+          },
+          query: null,
+          text: null,
+          composing: false,
+          dismissedRange: null
+        };
+        return state2;
+      },
+      // Apply changes to the plugin state from a view transaction.
+      apply(transaction, prev, _oldState, state2) {
+        const { isEditable } = editor;
+        const { composing } = editor.view;
+        const { selection } = transaction;
+        const { empty: empty2, from: from2 } = selection;
+        const next = { ...prev };
+        const meta = transaction.getMeta(pluginKey);
+        if (meta && meta.exit) {
+          next.active = false;
+          next.decorationId = null;
+          next.range = { from: 0, to: 0 };
+          next.query = null;
+          next.text = null;
+          next.dismissedRange = prev.active ? { ...prev.range } : prev.dismissedRange;
+          return next;
+        }
+        next.composing = composing;
+        if (transaction.docChanged && next.dismissedRange !== null) {
+          next.dismissedRange = {
+            from: transaction.mapping.map(next.dismissedRange.from),
+            to: transaction.mapping.map(next.dismissedRange.to)
+          };
+        }
+        if (isEditable && (empty2 || editor.view.composing)) {
+          if ((from2 < prev.range.from || from2 > prev.range.to) && !composing && !prev.composing) {
+            next.active = false;
+          }
+          const match = findSuggestionMatch2({
+            char,
+            allowSpaces,
+            allowToIncludeChar,
+            allowedPrefixes,
+            startOfLine,
+            $position: selection.$from
+          });
+          const decorationId = `id_${Math.floor(Math.random() * 4294967295)}`;
+          if (match && allow({
+            editor,
+            state: state2,
+            range: match.range,
+            isActive: prev.active
+          }) && (!shouldShow || shouldShow({
+            editor,
+            range: match.range,
+            query: match.query,
+            text: match.text,
+            transaction
+          }))) {
+            if (next.dismissedRange !== null && !shouldKeepDismissed({
+              match,
+              dismissedRange: next.dismissedRange,
+              state: state2,
+              transaction
+            })) {
+              next.dismissedRange = null;
+            }
+            if (next.dismissedRange === null) {
+              next.active = true;
+              next.decorationId = prev.decorationId ? prev.decorationId : decorationId;
+              next.range = match.range;
+              next.query = match.query;
+              next.text = match.text;
+            } else {
+              next.active = false;
+            }
+          } else {
+            if (!match) {
+              next.dismissedRange = null;
+            }
+            next.active = false;
+          }
+        } else {
+          next.active = false;
+        }
+        if (!next.active) {
+          next.decorationId = null;
+          next.range = { from: 0, to: 0 };
+          next.query = null;
+          next.text = null;
+        }
+        return next;
+      }
+    },
+    props: {
+      // Call the keydown hook if suggestion is active.
+      handleKeyDown(view, event) {
+        var _a2, _b2;
+        const { active: active2, range } = plugin.getState(view.state);
+        if (!active2) {
+          return false;
+        }
+        if (event.key === "Escape" || event.key === "Esc") {
+          const state2 = plugin.getState(view.state);
+          (_a2 = renderer2 == null ? void 0 : renderer2.onKeyDown) == null ? void 0 : _a2.call(renderer2, { view, event, range: state2.range });
+          dispatchExit(view, pluginKey);
+          return true;
+        }
+        const handled = ((_b2 = renderer2 == null ? void 0 : renderer2.onKeyDown) == null ? void 0 : _b2.call(renderer2, { view, event, range })) || false;
+        return handled;
+      },
+      // Setup decorator on the currently active suggestion.
+      decorations(state2) {
+        const { active: active2, range, decorationId, query } = plugin.getState(state2);
+        if (!active2) {
+          return null;
+        }
+        const isEmpty = !(query == null ? void 0 : query.length);
+        const classNames = [decorationClass];
+        if (isEmpty) {
+          classNames.push(decorationEmptyClass);
+        }
+        return DecorationSet.create(state2.doc, [
+          Decoration.inline(range.from, range.to, {
+            nodeName: decorationTag,
+            class: classNames.join(" "),
+            "data-decoration-id": decorationId,
+            "data-decoration-content": decorationContent
+          })
+        ]);
+      }
+    }
   });
+  return plugin;
 }
 function getSuggestionOptions({
   editor: tiptapEditor,
@@ -110657,7 +110362,6 @@ class DropCursorView {
     this.cursorPos = null;
     this.element = null;
     this.timeout = -1;
-    this.lastDragEvent = null;
     this.width = (_a2 = options.width) !== null && _a2 !== void 0 ? _a2 : 1;
     this.color = options.color === false ? void 0 : options.color || "black";
     this.class = options.class;
@@ -110674,15 +110378,10 @@ class DropCursorView {
   }
   update(editorView, prevState) {
     if (this.cursorPos != null && prevState.doc != editorView.state.doc) {
-      if (this.lastDragEvent) {
-        let target = this.computeTarget(this.lastDragEvent);
-        if (target == this.cursorPos)
-          this.updateOverlay();
-        else
-          this.setCursor(target);
-      } else {
+      if (this.cursorPos > editorView.state.doc.content.size)
+        this.setCursor(null);
+      else
         this.updateOverlay();
-      }
     }
   }
   setCursor(pos) {
@@ -110751,27 +110450,20 @@ class DropCursorView {
     clearTimeout(this.timeout);
     this.timeout = setTimeout(() => this.setCursor(null), timeout);
   }
-  computeTarget(event) {
+  dragover(event) {
+    if (!this.editorView.editable)
+      return;
     let pos = this.editorView.posAtCoords({ left: event.clientX, top: event.clientY });
     let node = pos && pos.inside >= 0 && this.editorView.state.doc.nodeAt(pos.inside);
     let disableDropCursor = node && node.type.spec.disableDropCursor;
     let disabled = typeof disableDropCursor == "function" ? disableDropCursor(this.editorView, pos, event) : disableDropCursor;
-    if (!pos || disabled)
-      return null;
-    let target = pos.pos;
-    if (this.editorView.dragging && this.editorView.dragging.slice) {
-      let point = dropPoint(this.editorView.state.doc, target, this.editorView.dragging.slice);
-      if (point != null)
-        target = point;
-    }
-    return target;
-  }
-  dragover(event) {
-    if (!this.editorView.editable)
-      return;
-    this.lastDragEvent = event;
-    let target = this.computeTarget(event);
-    if (target != null) {
+    if (pos && !disabled) {
+      let target = pos.pos;
+      if (this.editorView.dragging && this.editorView.dragging.slice) {
+        let point = dropPoint(this.editorView.state.doc, target, this.editorView.dragging.slice);
+        if (point != null)
+          target = point;
+      }
       this.setCursor(target);
       this.scheduleRemoval(5e3);
     }
@@ -111719,6 +111411,7 @@ Extension.create({
 });
 var DEFAULT_DATA_ATTRIBUTE = "placeholder";
 var PLUGIN_KEY = new PluginKey("tiptap__placeholder");
+var VIEWPORT_OVERSCAN_PX = 200;
 function createPlaceholderDecoration(options) {
   const {
     editor,
@@ -111747,50 +111440,6 @@ function createPlaceholderDecoration(options) {
 function resolveEmptyNodeClass(emptyNodeClass, props) {
   return typeof emptyNodeClass === "function" ? emptyNodeClass(props) : emptyNodeClass;
 }
-function scanRangeForDecorations({
-  editor,
-  options,
-  dataAttribute,
-  doc: doc2,
-  selection,
-  from: from2,
-  to
-}) {
-  const { anchor: anchor2 } = selection;
-  const decorations = [];
-  const isEmptyDoc = editor.isEmpty;
-  doc2.nodesBetween(from2, to, (node, pos) => {
-    const hasAnchor = anchor2 >= pos && anchor2 <= pos + node.nodeSize;
-    const isEmpty = !node.isLeaf && isNodeEmpty(node);
-    if (!node.type.isTextblock) {
-      return options.includeChildren;
-    }
-    if ((hasAnchor || !options.showOnlyCurrent) && isEmpty) {
-      decorations.push(
-        createPlaceholderDecoration({
-          editor,
-          isEmptyDoc,
-          dataAttribute,
-          hasAnchor,
-          placeholder: options.placeholder,
-          classes: {
-            emptyEditor: options.emptyEditorClass,
-            emptyNode: resolveEmptyNodeClass(options.emptyNodeClass, {
-              editor,
-              node,
-              pos,
-              hasAnchor
-            })
-          },
-          node,
-          pos
-        })
-      );
-    }
-    return options.includeChildren;
-  });
-  return decorations;
-}
 function buildPlaceholderDecorations({
   editor,
   options,
@@ -111798,6 +111447,7 @@ function buildPlaceholderDecorations({
   doc: doc2,
   selection
 }) {
+  var _a2, _b2;
   const active2 = editor.isEditable || !options.showOnlyWhenEditable;
   if (!active2) {
     return null;
@@ -111834,204 +111484,179 @@ function buildPlaceholderDecorations({
       );
     }
   } else {
-    decorations.push(
-      ...scanRangeForDecorations({
-        editor,
-        options,
-        dataAttribute,
-        doc: doc2,
-        selection,
-        from: 0,
-        to: doc2.content.size
-      })
-    );
+    const pluginState = PLUGIN_KEY.getState(editor.state);
+    const from2 = (_a2 = pluginState == null ? void 0 : pluginState.topPos) != null ? _a2 : 0;
+    const to = (_b2 = pluginState == null ? void 0 : pluginState.bottomPos) != null ? _b2 : doc2.content.size;
+    doc2.nodesBetween(from2, to, (node, pos) => {
+      const hasAnchor = anchor2 >= pos && anchor2 <= pos + node.nodeSize;
+      const isEmpty = !node.isLeaf && isNodeEmpty(node);
+      if (!node.type.isTextblock) {
+        return options.includeChildren;
+      }
+      if ((hasAnchor || !options.showOnlyCurrent) && isEmpty) {
+        decorations.push(
+          createPlaceholderDecoration({
+            editor,
+            isEmptyDoc,
+            dataAttribute,
+            hasAnchor,
+            placeholder: options.placeholder,
+            classes: {
+              emptyEditor: options.emptyEditorClass,
+              emptyNode: resolveEmptyNodeClass(options.emptyNodeClass, {
+                editor,
+                node,
+                pos,
+                hasAnchor
+              })
+            },
+            node,
+            pos
+          })
+        );
+      }
+      return options.includeChildren;
+    });
   }
   return DecorationSet.create(doc2, decorations);
-}
-function resolveTopLevelRange(doc2, pos) {
-  var _a2;
-  const resolved = doc2.resolve(pos);
-  if (resolved.depth === 0) {
-    const node2 = (_a2 = resolved.nodeAfter) != null ? _a2 : resolved.nodeBefore;
-    if (!node2) {
-      return { from: pos, to: pos };
-    }
-    const nodePos = resolved.nodeAfter ? pos : pos - node2.nodeSize;
-    return { from: nodePos, to: nodePos + node2.nodeSize };
-  }
-  const topLevelPos = resolved.before(1);
-  const node = resolved.node(1);
-  return { from: topLevelPos, to: topLevelPos + node.nodeSize };
-}
-function toContentRelativeRange(doc2, range) {
-  return {
-    from: Math.max(0, range.from - 1),
-    to: Math.min(doc2.content.size, range.to - 1)
-  };
-}
-function getTopLevelBlocksInRange(doc2, from2, to) {
-  const ranges = [];
-  doc2.forEach((node, offset2) => {
-    const nodeStart = offset2;
-    const nodeEnd = nodeStart + node.nodeSize;
-    const absNodeStart = nodeStart + 1;
-    const absNodeEnd = nodeEnd + 1;
-    if (absNodeStart < to && absNodeEnd > from2) {
-      ranges.push({ from: nodeStart, to: nodeEnd });
-    }
-  });
-  return ranges;
-}
-function mergeRanges(ranges) {
-  if (ranges.length === 0) {
-    return [];
-  }
-  const sorted = [...ranges].sort((a2, b) => a2.from - b.from);
-  const merged = [{ ...sorted[0] }];
-  for (let i = 1; i < sorted.length; i += 1) {
-    const last = merged[merged.length - 1];
-    const current = sorted[i];
-    if (current.from <= last.to) {
-      last.to = Math.max(last.to, current.to);
-    } else {
-      merged.push({ ...current });
-    }
-  }
-  return merged;
-}
-function collectBlocksForChange(doc2, change) {
-  const ranges = getTopLevelBlocksInRange(doc2, change.from, change.to);
-  ranges.push(toContentRelativeRange(doc2, resolveTopLevelRange(doc2, change.from)));
-  if (change.to > change.from) {
-    ranges.push(
-      toContentRelativeRange(
-        doc2,
-        resolveTopLevelRange(doc2, Math.min(change.to, doc2.content.size + 1) - 1)
-      )
-    );
-  } else if (change.from < doc2.content.size + 1) {
-    ranges.push(
-      toContentRelativeRange(
-        doc2,
-        resolveTopLevelRange(doc2, Math.min(change.from + 1, doc2.content.size))
-      )
-    );
-  }
-  return ranges;
-}
-function collectRescanRanges(tr2, oldState, newState) {
-  const ranges = [];
-  if (tr2.docChanged) {
-    const changes = getChangedRanges(tr2);
-    for (const change of changes) {
-      ranges.push(...collectBlocksForChange(newState.doc, change.newRange));
-    }
-  }
-  if (tr2.selectionSet) {
-    ranges.push(
-      toContentRelativeRange(
-        newState.doc,
-        resolveTopLevelRange(newState.doc, tr2.mapping.map(oldState.selection.anchor))
-      )
-    );
-    ranges.push(
-      toContentRelativeRange(
-        newState.doc,
-        resolveTopLevelRange(newState.doc, newState.selection.anchor)
-      )
-    );
-  }
-  return mergeRanges(ranges);
-}
-function clampRange(from2, to, doc2) {
-  const clampedFrom = Math.max(0, Math.min(from2, doc2.content.size));
-  const clampedTo = Math.max(clampedFrom, Math.min(to, doc2.content.size));
-  return { from: clampedFrom, to: clampedTo };
-}
-function updateDecorationsInRanges({
-  decorations,
-  ranges,
-  editor,
-  options,
-  dataAttribute,
-  doc: doc2,
-  selection
-}) {
-  let next = decorations;
-  for (const range of ranges) {
-    const { from: from2, to } = clampRange(range.from, range.to, doc2);
-    const existing = next.find(from2, to).filter((decoration) => decoration.from >= from2 && decoration.to <= to);
-    if (existing.length) {
-      next = next.remove(existing);
-    }
-    const newDecos = scanRangeForDecorations({
-      editor,
-      options,
-      dataAttribute,
-      doc: doc2,
-      selection,
-      from: from2,
-      to
-    });
-    if (newDecos.length) {
-      next = next.add(doc2, newDecos);
-    }
-  }
-  return next;
-}
-function createPlaceholderStateField({
-  editor,
-  options,
-  dataAttribute
-}) {
-  return {
-    init(_config, state2) {
-      const decorations = buildPlaceholderDecorations({
-        editor,
-        options,
-        dataAttribute,
-        doc: state2.doc,
-        selection: state2.selection
-      });
-      return decorations != null ? decorations : DecorationSet.empty;
-    },
-    apply(tr2, prev, oldState, newState) {
-      if (!tr2.docChanged && !tr2.selectionSet) {
-        return prev;
-      }
-      const mapped = prev.map(tr2.mapping, tr2.doc);
-      const ranges = collectRescanRanges(tr2, oldState, newState);
-      return updateDecorationsInRanges({
-        decorations: mapped,
-        ranges,
-        editor,
-        options,
-        dataAttribute,
-        doc: newState.doc,
-        selection: newState.selection
-      });
-    }
-  };
 }
 function preparePlaceholderAttribute(attr) {
   return attr.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "").replace(/^[0-9-]+/, "").replace(/^-+/, "").toLowerCase();
 }
+function isScrollable(el2) {
+  const style2 = getComputedStyle(el2);
+  const overflow = `${style2.overflow} ${style2.overflowY} ${style2.overflowX}`;
+  return /auto|scroll|overlay/.test(overflow);
+}
+function findScrollParent(element) {
+  let el2 = element;
+  while (el2) {
+    if (isScrollable(el2)) {
+      return el2;
+    }
+    const parent = el2.parentElement;
+    if (!parent) {
+      const root = el2.getRootNode();
+      if (root instanceof ShadowRoot) {
+        el2 = root.host;
+        continue;
+      }
+      return window;
+    }
+    el2 = parent;
+  }
+  return window;
+}
+function getContainerRect(container) {
+  if (container === window) {
+    return { top: 0, bottom: window.innerHeight };
+  }
+  return container.getBoundingClientRect();
+}
+function getViewportBoundaryPositions({
+  doc: doc2,
+  view,
+  scrollContainer
+}) {
+  const editorRect = view.dom.getBoundingClientRect();
+  const containerRect = scrollContainer ? getContainerRect(scrollContainer) : { top: 0, bottom: window.innerHeight };
+  const visibleTop = Math.max(editorRect.top, containerRect.top) - VIEWPORT_OVERSCAN_PX;
+  const visibleBottom = Math.min(editorRect.bottom, containerRect.bottom) + VIEWPORT_OVERSCAN_PX;
+  if (visibleTop >= visibleBottom) {
+    return { top: 0, bottom: doc2.content.size };
+  }
+  const isRTL2 = getComputedStyle(view.dom).direction === "rtl";
+  const x = isRTL2 ? Math.max(editorRect.right - 2, editorRect.left + 2) : editorRect.left + 2;
+  const topPos = view.posAtCoords({ left: x, top: visibleTop + 2 });
+  const bottomPos = view.posAtCoords({ left: x, top: visibleBottom - 2 });
+  return {
+    top: topPos ? topPos.pos : 0,
+    bottom: bottomPos ? bottomPos.pos : doc2.content.size
+  };
+}
+var viewportPluginState = {
+  /**
+   * Initialises the viewport state with no known positions.
+   * @returns The initial viewport state.
+   */
+  init() {
+    return { topPos: null, bottomPos: null };
+  },
+  /**
+   * Updates the viewport state from incoming transactions.
+   * @param tr - The transaction being applied.
+   * @param prev - The previous viewport state.
+   * @returns The next viewport state.
+   */
+  apply(tr2, prev) {
+    const meta = tr2.getMeta(PLUGIN_KEY);
+    if (meta == null ? void 0 : meta.positions) {
+      return { topPos: meta.positions.top, bottomPos: meta.positions.bottom };
+    }
+    if (!tr2.docChanged) {
+      return prev;
+    }
+    return {
+      topPos: prev.topPos !== null ? tr2.mapping.map(prev.topPos) : null,
+      bottomPos: prev.bottomPos !== null ? tr2.mapping.map(prev.bottomPos) : null
+    };
+  }
+};
+function createViewportPluginView(view) {
+  const scrollContainer = findScrollParent(view.dom);
+  const computeAndDispatch = () => {
+    const positions2 = getViewportBoundaryPositions({
+      view,
+      doc: view.state.doc,
+      scrollContainer
+    });
+    const prev = PLUGIN_KEY.getState(view.state);
+    if ((prev == null ? void 0 : prev.topPos) === positions2.top && (prev == null ? void 0 : prev.bottomPos) === positions2.bottom) {
+      return;
+    }
+    const tr2 = view.state.tr.setMeta(PLUGIN_KEY, { positions: positions2 });
+    view.dispatch(tr2);
+  };
+  let frame = null;
+  let lastCompute = 0;
+  const MIN_SCROLL_INTERVAL = 150;
+  const scheduleFrame = () => {
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      const now2 = performance.now();
+      if (now2 - lastCompute >= MIN_SCROLL_INTERVAL) {
+        lastCompute = now2;
+        computeAndDispatch();
+      } else {
+        scheduleFrame();
+      }
+    });
+  };
+  scrollContainer.addEventListener("scroll", scheduleFrame, { passive: true });
+  computeAndDispatch();
+  return {
+    update(_view, prevState) {
+      if (view.state.doc.content.size !== prevState.doc.content.size) {
+        scheduleFrame();
+      }
+    },
+    destroy: () => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+      scrollContainer.removeEventListener("scroll", scheduleFrame);
+    }
+  };
+}
 function createPlaceholderPlugin({ editor, options }) {
   const dataAttribute = options.dataAttribute ? `data-${preparePlaceholderAttribute(options.dataAttribute)}` : `data-${DEFAULT_DATA_ATTRIBUTE}`;
-  const useResolvedPath = options.showOnlyCurrent && !options.includeChildren;
   return new Plugin({
     key: PLUGIN_KEY,
-    ...useResolvedPath ? {} : {
-      state: createPlaceholderStateField({ editor, options, dataAttribute })
-    },
+    state: viewportPluginState,
+    view: createViewportPluginView,
     props: {
-      decorations: useResolvedPath ? ({ doc: doc2, selection }) => buildPlaceholderDecorations({ editor, options, dataAttribute, doc: doc2, selection }) : (state2) => {
-        var _a2;
-        if (options.showOnlyWhenEditable && !editor.isEditable) {
-          return DecorationSet.empty;
-        }
-        return (_a2 = PLUGIN_KEY.getState(state2)) != null ? _a2 : DecorationSet.empty;
-      }
+      decorations: ({ doc: doc2, selection }) => buildPlaceholderDecorations({ editor, options, dataAttribute, doc: doc2, selection })
     }
   });
 }
@@ -116355,7 +115980,7 @@ const _sfc_main$48 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MainPromptInput = /* @__PURE__ */ _export_sfc(_sfc_main$48, [["__scopeId", "data-v-061efb14"]]);
+const MainPromptInput = /* @__PURE__ */ _export_sfc(_sfc_main$48, [["__scopeId", "data-v-92b77984"]]);
 const _hoisted_1$5T = {
   viewBox: "0 0 24 24",
   width: "1.2em",
@@ -125417,7 +125042,7 @@ const _sfc_main$40 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ProxiedVideo = /* @__PURE__ */ _export_sfc(_sfc_main$40, [["__scopeId", "data-v-753e7c13"]]);
+const ProxiedVideo = /* @__PURE__ */ _export_sfc(_sfc_main$40, [["__scopeId", "data-v-2ffd7745"]]);
 function parsePayloadList(type, content, wantType, key) {
   if (type !== wantType || !content) return [];
   try {
@@ -125831,7 +125456,7 @@ const _sfc_main$3$ = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ValuePreviewBatch = /* @__PURE__ */ _export_sfc(_sfc_main$3$, [["__scopeId", "data-v-f50f5a87"]]);
+const ValuePreviewBatch = /* @__PURE__ */ _export_sfc(_sfc_main$3$, [["__scopeId", "data-v-d5a6f924"]]);
 const _hoisted_1$5I = {
   key: 0,
   class: "ctv:flex ctv:flex-col ctv:gap-0.5 ctv:size-full ctv:py-[3px] ctv:px-1 ctv:box-border ctv:overflow-hidden"
@@ -126725,7 +126350,7 @@ function useGLSLRenderer(config2 = DEFAULT_CONFIG) {
     dispose
   };
 }
-const videoColorFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\n\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform float u_float6;\r\nuniform float u_float7;\r\nuniform float u_float8;\r\nuniform float u_float9;\r\nuniform float u_float10;\r\nuniform float u_float11;\r\nuniform float u_float12;\r\nuniform float u_float13;\r\nuniform float u_float14;\r\nuniform float u_float15;\r\nuniform float u_float16;\r\nuniform float u_float17;\r\nuniform float u_float18;\r\nuniform float u_float19;\r\nuniform float u_float20;\r\nuniform float u_float21;\r\nuniform float u_float22;\r\nuniform float u_float23;\r\nuniform float u_float24;\r\nuniform float u_float25;\r\nuniform float u_float26;\r\nuniform float u_float27;\r\nuniform float u_float28;\r\nuniform float u_float29;\r\nuniform float u_float30;\r\n\r\nuniform bool u_bool0;\r\nuniform bool u_bool1;\r\nuniform bool u_bool2;\r\nuniform bool u_bool3;\r\nuniform bool u_bool4;\r\nuniform bool u_bool5;\r\nuniform bool u_bool6;\r\nuniform bool u_bool7;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float ENTRY_SCALE = 65280.0 / 65535.0;\r\n\r\nvec3 quantTrunc(vec3 v) {\r\n    return clamp(floor(v * 255.0), 0.0, 255.0) / 255.0;\r\n}\r\n\r\nvec3 quantRound(vec3 v) {\r\n    return floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 255.0;\r\n}\r\n\r\nvec3 floatExit8(vec3 v) {\r\n    vec3 v16 = floor(clamp(v, 0.0, 1.0) * 65535.0 + 0.5);\r\n    return min(floor((v16 + 128.0) / 256.0), 255.0) / 255.0;\r\n}\r\n\r\nfloat fastDiv255(float x) {\r\n    return floor((x + 128.0) * 257.0 / 65536.0);\r\n}\r\n\r\nvec3 hueSat(vec3 c) {\r\n    float r = floor(c.r * 255.0 + 0.5);\r\n    float g = floor(c.g * 255.0 + 0.5);\r\n    float b = floor(c.b * 255.0 + 0.5);\r\n    float f = 0.0;\r\n    f = max(f, r - max(g, b));\r\n    f = max(f, min(r, g) - b);\r\n    f = max(f, g - max(r, b));\r\n    f = max(f, min(g, b) - r);\r\n    f = max(f, b - max(r, g));\r\n    f = max(f, min(r, b) - g);\r\n    f = min(f, 255.0);\r\n    float tr = floor((r * u_float6 + g * u_float9 + b * u_float12) / 65536.0);\r\n    float tg = floor((r * u_float7 + g * u_float10 + b * u_float13) / 65536.0);\r\n    float tb = floor((r * u_float8 + g * u_float11 + b * u_float14) / 65536.0);\r\n    vec3 o = vec3(\r\n        r + fastDiv255((tr - r) * f),\r\n        g + fastDiv255((tg - g) * f),\r\n        b + fastDiv255((tb - b) * f));\r\n    return clamp(o, 0.0, 255.0) / 255.0;\r\n}\r\n\r\nvec3 vibrance(vec3 c) {\r\n    float intensity = u_float15;\r\n    float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));\r\n    float luma = c.g * 0.715158 + c.r * 0.212656 + c.b * 0.072186;\r\n    float s = intensity > 0.0 ? 1.0 : -1.0;\r\n    float k = 1.0 + intensity * (1.0 + s * sat);\r\n    return quantTrunc(vec3(luma) + (c - vec3(luma)) * k);\r\n}\r\n\r\nfloat getComponent(float v, float l, float s, float m, float h) {\r\n    const float a = 4.0;\r\n    const float b = 0.333;\r\n    const float sc = 0.7;\r\n    float sw = s * clamp((b - l) * a + 0.5, 0.0, 1.0) * sc;\r\n    float mw = m * clamp((l - b) * a + 0.5, 0.0, 1.0)\r\n             * clamp((1.0 - l - b) * a + 0.5, 0.0, 1.0) * sc;\r\n    float hw = h * clamp((l + b - 1.0) * a + 0.5, 0.0, 1.0) * sc;\r\n    return clamp(v + sw + mw + hw, 0.0, 1.0);\r\n}\r\n\r\nfloat hfun(float n, float h, float s, float l) {\r\n    float a = s * min(l, 1.0 - l);\r\n    float k = mod(n + h / 30.0, 12.0);\r\n    return clamp(l - a * max(min(min(k - 3.0, 9.0 - k), 1.0), -1.0), 0.0, 1.0);\r\n}\r\n\r\nvec3 preservel(vec3 c, float l) {\r\n    float mx = max(c.r, max(c.g, c.b));\r\n    float mn = min(c.r, min(c.g, c.b));\r\n    float hl = l * 0.5;\r\n    float h;\r\n    if (c.r == c.g && c.g == c.b) h = 0.0;\r\n    else if (mx == c.r) h = 60.0 * ((c.g - c.b) / (mx - mn));\r\n    else if (mx == c.g) h = 60.0 * (2.0 + (c.b - c.r) / (mx - mn));\r\n    else h = 60.0 * (4.0 + (c.r - c.g) / (mx - mn));\r\n    if (h < 0.0) h += 360.0;\r\n    float s = (mx == 1.0 || mn == 0.0)\r\n        ? 0.0\r\n        : (mx - mn) / (1.0 - abs(2.0 * hl - 1.0));\r\n    return vec3(hfun(0.0, h, s, hl), hfun(8.0, h, s, hl), hfun(4.0, h, s, hl));\r\n}\r\n\r\nvec3 colorBalance(vec3 c) {\r\n    float l = max(c.r, max(c.g, c.b)) + min(c.r, min(c.g, c.b));\r\n    vec3 o = vec3(\r\n        getComponent(c.r, l, u_float22, u_float25, u_float28),\r\n        getComponent(c.g, l, u_float23, u_float26, u_float29),\r\n        getComponent(c.b, l, u_float24, u_float27, u_float30));\r\n    if (u_bool6) o = preservel(o, l);\r\n    return quantRound(o);\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 c = tex.rgb;\r\n    bool inFloat = false;\r\n\r\n    if (u_bool0) {\r\n        c = (c * ENTRY_SCALE - vec3(u_float0)) * u_float1;\r\n        inFloat = true;\r\n        if (u_bool1) c = mix(c, c * vec3(u_float2, u_float3, u_float4), u_float5);\r\n    } else if (u_bool1) {\r\n        c = mix(c, c * vec3(u_float2, u_float3, u_float4), u_float5);\r\n        c = quantTrunc(c);\r\n    }\r\n\r\n    if (inFloat && !u_bool7) {\r\n        c = floatExit8(c);\r\n        inFloat = false;\r\n    }\r\n\r\n    if (u_bool2) c = hueSat(c);\r\n    if (u_bool3) c = vibrance(c);\r\n\r\n    if (u_bool4) {\r\n        vec3 lo = vec3(u_float16, u_float17, u_float18);\r\n        vec3 k = vec3(u_float19, u_float20, u_float21);\r\n        c = (c - lo) * k;\r\n        if (!inFloat) c = quantTrunc(c);\r\n    }\r\n\r\n    if (u_bool5) {\r\n        if (inFloat) {\r\n            c = floatExit8(c);\r\n            inFloat = false;\r\n        }\r\n        c = colorBalance(c);\r\n    }\r\n\r\n    if (inFloat) c = floatExit8(c);\r\n\r\n    fragColor = vec4(clamp(c, 0.0, 1.0), tex.a);\r\n}\r\n";
+const videoColorFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\n\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform float u_float6;\nuniform float u_float7;\nuniform float u_float8;\nuniform float u_float9;\nuniform float u_float10;\nuniform float u_float11;\nuniform float u_float12;\nuniform float u_float13;\nuniform float u_float14;\nuniform float u_float15;\nuniform float u_float16;\nuniform float u_float17;\nuniform float u_float18;\nuniform float u_float19;\nuniform float u_float20;\nuniform float u_float21;\nuniform float u_float22;\nuniform float u_float23;\nuniform float u_float24;\nuniform float u_float25;\nuniform float u_float26;\nuniform float u_float27;\nuniform float u_float28;\nuniform float u_float29;\nuniform float u_float30;\n\nuniform bool u_bool0;\nuniform bool u_bool1;\nuniform bool u_bool2;\nuniform bool u_bool3;\nuniform bool u_bool4;\nuniform bool u_bool5;\nuniform bool u_bool6;\nuniform bool u_bool7;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float ENTRY_SCALE = 65280.0 / 65535.0;\n\nvec3 quantTrunc(vec3 v) {\n    return clamp(floor(v * 255.0), 0.0, 255.0) / 255.0;\n}\n\nvec3 quantRound(vec3 v) {\n    return floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 255.0;\n}\n\nvec3 floatExit8(vec3 v) {\n    vec3 v16 = floor(clamp(v, 0.0, 1.0) * 65535.0 + 0.5);\n    return min(floor((v16 + 128.0) / 256.0), 255.0) / 255.0;\n}\n\nfloat fastDiv255(float x) {\n    return floor((x + 128.0) * 257.0 / 65536.0);\n}\n\nvec3 hueSat(vec3 c) {\n    float r = floor(c.r * 255.0 + 0.5);\n    float g = floor(c.g * 255.0 + 0.5);\n    float b = floor(c.b * 255.0 + 0.5);\n    float f = 0.0;\n    f = max(f, r - max(g, b));\n    f = max(f, min(r, g) - b);\n    f = max(f, g - max(r, b));\n    f = max(f, min(g, b) - r);\n    f = max(f, b - max(r, g));\n    f = max(f, min(r, b) - g);\n    f = min(f, 255.0);\n    float tr = floor((r * u_float6 + g * u_float9 + b * u_float12) / 65536.0);\n    float tg = floor((r * u_float7 + g * u_float10 + b * u_float13) / 65536.0);\n    float tb = floor((r * u_float8 + g * u_float11 + b * u_float14) / 65536.0);\n    vec3 o = vec3(\n        r + fastDiv255((tr - r) * f),\n        g + fastDiv255((tg - g) * f),\n        b + fastDiv255((tb - b) * f));\n    return clamp(o, 0.0, 255.0) / 255.0;\n}\n\nvec3 vibrance(vec3 c) {\n    float intensity = u_float15;\n    float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));\n    float luma = c.g * 0.715158 + c.r * 0.212656 + c.b * 0.072186;\n    float s = intensity > 0.0 ? 1.0 : -1.0;\n    float k = 1.0 + intensity * (1.0 + s * sat);\n    return quantTrunc(vec3(luma) + (c - vec3(luma)) * k);\n}\n\nfloat getComponent(float v, float l, float s, float m, float h) {\n    const float a = 4.0;\n    const float b = 0.333;\n    const float sc = 0.7;\n    float sw = s * clamp((b - l) * a + 0.5, 0.0, 1.0) * sc;\n    float mw = m * clamp((l - b) * a + 0.5, 0.0, 1.0)\n             * clamp((1.0 - l - b) * a + 0.5, 0.0, 1.0) * sc;\n    float hw = h * clamp((l + b - 1.0) * a + 0.5, 0.0, 1.0) * sc;\n    return clamp(v + sw + mw + hw, 0.0, 1.0);\n}\n\nfloat hfun(float n, float h, float s, float l) {\n    float a = s * min(l, 1.0 - l);\n    float k = mod(n + h / 30.0, 12.0);\n    return clamp(l - a * max(min(min(k - 3.0, 9.0 - k), 1.0), -1.0), 0.0, 1.0);\n}\n\nvec3 preservel(vec3 c, float l) {\n    float mx = max(c.r, max(c.g, c.b));\n    float mn = min(c.r, min(c.g, c.b));\n    float hl = l * 0.5;\n    float h;\n    if (c.r == c.g && c.g == c.b) h = 0.0;\n    else if (mx == c.r) h = 60.0 * ((c.g - c.b) / (mx - mn));\n    else if (mx == c.g) h = 60.0 * (2.0 + (c.b - c.r) / (mx - mn));\n    else h = 60.0 * (4.0 + (c.r - c.g) / (mx - mn));\n    if (h < 0.0) h += 360.0;\n    float s = (mx == 1.0 || mn == 0.0)\n        ? 0.0\n        : (mx - mn) / (1.0 - abs(2.0 * hl - 1.0));\n    return vec3(hfun(0.0, h, s, hl), hfun(8.0, h, s, hl), hfun(4.0, h, s, hl));\n}\n\nvec3 colorBalance(vec3 c) {\n    float l = max(c.r, max(c.g, c.b)) + min(c.r, min(c.g, c.b));\n    vec3 o = vec3(\n        getComponent(c.r, l, u_float22, u_float25, u_float28),\n        getComponent(c.g, l, u_float23, u_float26, u_float29),\n        getComponent(c.b, l, u_float24, u_float27, u_float30));\n    if (u_bool6) o = preservel(o, l);\n    return quantRound(o);\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 c = tex.rgb;\n    bool inFloat = false;\n\n    if (u_bool0) {\n        c = (c * ENTRY_SCALE - vec3(u_float0)) * u_float1;\n        inFloat = true;\n        if (u_bool1) c = mix(c, c * vec3(u_float2, u_float3, u_float4), u_float5);\n    } else if (u_bool1) {\n        c = mix(c, c * vec3(u_float2, u_float3, u_float4), u_float5);\n        c = quantTrunc(c);\n    }\n\n    if (inFloat && !u_bool7) {\n        c = floatExit8(c);\n        inFloat = false;\n    }\n\n    if (u_bool2) c = hueSat(c);\n    if (u_bool3) c = vibrance(c);\n\n    if (u_bool4) {\n        vec3 lo = vec3(u_float16, u_float17, u_float18);\n        vec3 k = vec3(u_float19, u_float20, u_float21);\n        c = (c - lo) * k;\n        if (!inFloat) c = quantTrunc(c);\n    }\n\n    if (u_bool5) {\n        if (inFloat) {\n            c = floatExit8(c);\n            inFloat = false;\n        }\n        c = colorBalance(c);\n    }\n\n    if (inFloat) c = floatExit8(c);\n\n    fragColor = vec4(clamp(c, 0.0, 1.0), tex.a);\n}\n";
 function clampF(v, lo, hi, def2 = 0) {
   const x = Number.isFinite(v) ? v : def2;
   return Math.min(hi, Math.max(lo, x));
@@ -127173,7 +126798,7 @@ class VideoColorRenderer {
     this.minCanvas = null;
   }
 }
-const videoCurvesFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_curve0;\r\nuniform sampler2D u_curve1;\r\nuniform sampler2D u_curve2;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nfloat mapChannel(sampler2D lut, float v) {\r\n    int idx = int(floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5));\r\n    return texelFetch(lut, ivec2(idx, 0), 0).r;\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    fragColor = vec4(\r\n        mapChannel(u_curve0, tex.r),\r\n        mapChannel(u_curve1, tex.g),\r\n        mapChannel(u_curve2, tex.b),\r\n        tex.a);\r\n}\r\n";
+const videoCurvesFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform sampler2D u_curve0;\nuniform sampler2D u_curve1;\nuniform sampler2D u_curve2;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nfloat mapChannel(sampler2D lut, float v) {\n    int idx = int(floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5));\n    return texelFetch(lut, ivec2(idx, 0), 0).r;\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    fragColor = vec4(\n        mapChannel(u_curve0, tex.r),\n        mapChannel(u_curve1, tex.g),\n        mapChannel(u_curve2, tex.b),\n        tex.a);\n}\n";
 const VIDEO_CURVES_PRESETS = {
   color_negative: {
     red: [[0.129, 1], [0.466, 0.498], [0.725, 0]],
@@ -127413,7 +127038,7 @@ class VideoCurvesRenderer {
     this.lutKey = null;
   }
 }
-const videoBlurFrag = "#version 300 es\r\nprecision highp float;\r\n\r\n#pragma passes 2\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_image1;\r\nuniform vec2 u_resolution;\r\nuniform int u_pass;\r\nuniform int u_int0;\r\nuniform int u_int1;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst vec3 LUMA = vec3(0.299, 0.587, 0.114);\r\n\r\nvec4 separableBlur(vec2 stepv) {\r\n    vec4 c = texture(u_image0, v_texCoord);\r\n    vec3 acc = c.rgb;\r\n    float wsum = 1.0;\r\n    float w = 1.0;\r\n    for (int i = 1; i <= u_int1; i++) {\r\n        if (u_int0 == 0) w *= u_float0;\r\n        vec2 o = stepv * float(i);\r\n        acc += w * (texture(u_image0, v_texCoord + o).rgb\r\n                  + texture(u_image0, v_texCoord - o).rgb);\r\n        wsum += 2.0 * w;\r\n    }\r\n    return vec4(acc / wsum, c.a);\r\n}\r\n\r\nvec4 bilateralH(vec2 stepv) {\r\n    vec3 c = texture(u_image0, v_texCoord).rgb;\r\n    float lum0 = dot(c, LUMA);\r\n    vec3 accV = 2.0 * c;\r\n    float accF = 2.0;\r\n    float prodA = 1.0;\r\n    float prodB = 1.0;\r\n    float prevA = lum0;\r\n    float prevB = lum0;\r\n    for (int i = 1; i <= u_int1; i++) {\r\n        vec2 o = stepv * float(i);\r\n        vec3 a = texture(u_image0, v_texCoord + o).rgb;\r\n        vec3 b = texture(u_image0, v_texCoord - o).rgb;\r\n        float la = dot(a, LUMA);\r\n        float lb = dot(b, LUMA);\r\n        prodA *= u_float0 * exp(-abs(la - prevA) * u_float1);\r\n        prodB *= u_float0 * exp(-abs(lb - prevB) * u_float1);\r\n        prevA = la;\r\n        prevB = lb;\r\n        accV += prodA * a + prodB * b;\r\n        accF += prodA + prodB;\r\n    }\r\n    return vec4(accV, accF);\r\n}\r\n\r\nvec4 bilateralV(vec2 stepv) {\r\n    vec4 tf = texture(u_image0, v_texCoord);\r\n    float lum0 = dot(texture(u_image1, v_texCoord).rgb, LUMA);\r\n    vec3 accV = 2.0 * tf.rgb;\r\n    float accF = 2.0 * tf.a;\r\n    float prodA = 1.0;\r\n    float prodB = 1.0;\r\n    float prevA = lum0;\r\n    float prevB = lum0;\r\n    for (int i = 1; i <= u_int1; i++) {\r\n        vec2 o = stepv * float(i);\r\n        vec4 a = texture(u_image0, v_texCoord + o);\r\n        vec4 b = texture(u_image0, v_texCoord - o);\r\n        float la = dot(texture(u_image1, v_texCoord + o).rgb, LUMA);\r\n        float lb = dot(texture(u_image1, v_texCoord - o).rgb, LUMA);\r\n        prodA *= u_float0 * exp(-abs(la - prevA) * u_float1);\r\n        prodB *= u_float0 * exp(-abs(lb - prevB) * u_float1);\r\n        prevA = la;\r\n        prevB = lb;\r\n        accV += prodA * a.rgb + prodB * b.rgb;\r\n        accF += prodA * a.a + prodB * b.a;\r\n    }\r\n    return vec4(clamp(accV / accF, 0.0, 1.0), 1.0);\r\n}\r\n\r\nfloat binomialLuma(vec2 stepv, bool fromRed) {\r\n    int s = u_int1;\r\n    float w = 1.0;\r\n    for (int k = 1; k <= s; k++) {\r\n        w *= (2.0 * float(k) - 1.0) / (2.0 * float(k));\r\n    }\r\n    vec4 c0 = texture(u_image0, v_texCoord);\r\n    float acc = w * (fromRed ? c0.r : dot(c0.rgb, LUMA));\r\n    for (int i = 0; i < s; i++) {\r\n        w = w * float(s - i) / float(s + i + 1);\r\n        vec2 o = stepv * float(i + 1);\r\n        vec4 a = texture(u_image0, v_texCoord + o);\r\n        vec4 b = texture(u_image0, v_texCoord - o);\r\n        float va = fromRed ? a.r : dot(a.rgb, LUMA);\r\n        float vb = fromRed ? b.r : dot(b.rgb, LUMA);\r\n        acc += w * (va + vb);\r\n    }\r\n    return acc;\r\n}\r\n\r\nvec4 sharpenCombine(vec2 stepv) {\r\n    float blurY = binomialLuma(stepv, true);\r\n    vec4 orig = texture(u_image1, v_texCoord);\r\n    float y = dot(orig.rgb, LUMA);\r\n    vec3 c = orig.rgb + vec3((y - blurY) * u_float2);\r\n    return vec4(clamp(c, 0.0, 1.0), orig.a);\r\n}\r\n\r\nvoid main() {\r\n    vec2 texel = 1.0 / u_resolution;\r\n    vec2 stepv = u_pass == 0 ? vec2(texel.x, 0.0) : vec2(0.0, texel.y);\r\n    if (u_int0 == 2) {\r\n        fragColor = u_pass == 0 ? bilateralH(stepv) : bilateralV(stepv);\r\n    } else if (u_int0 == 3) {\r\n        fragColor = u_pass == 0\r\n            ? vec4(vec3(binomialLuma(stepv, false)), 1.0)\r\n            : sharpenCombine(stepv);\r\n    } else {\r\n        fragColor = separableBlur(stepv);\r\n    }\r\n}\r\n";
+const videoBlurFrag = "#version 300 es\nprecision highp float;\n\n#pragma passes 2\n\nuniform sampler2D u_image0;\nuniform sampler2D u_image1;\nuniform vec2 u_resolution;\nuniform int u_pass;\nuniform int u_int0;\nuniform int u_int1;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst vec3 LUMA = vec3(0.299, 0.587, 0.114);\n\nvec4 separableBlur(vec2 stepv) {\n    vec4 c = texture(u_image0, v_texCoord);\n    vec3 acc = c.rgb;\n    float wsum = 1.0;\n    float w = 1.0;\n    for (int i = 1; i <= u_int1; i++) {\n        if (u_int0 == 0) w *= u_float0;\n        vec2 o = stepv * float(i);\n        acc += w * (texture(u_image0, v_texCoord + o).rgb\n                  + texture(u_image0, v_texCoord - o).rgb);\n        wsum += 2.0 * w;\n    }\n    return vec4(acc / wsum, c.a);\n}\n\nvec4 bilateralH(vec2 stepv) {\n    vec3 c = texture(u_image0, v_texCoord).rgb;\n    float lum0 = dot(c, LUMA);\n    vec3 accV = 2.0 * c;\n    float accF = 2.0;\n    float prodA = 1.0;\n    float prodB = 1.0;\n    float prevA = lum0;\n    float prevB = lum0;\n    for (int i = 1; i <= u_int1; i++) {\n        vec2 o = stepv * float(i);\n        vec3 a = texture(u_image0, v_texCoord + o).rgb;\n        vec3 b = texture(u_image0, v_texCoord - o).rgb;\n        float la = dot(a, LUMA);\n        float lb = dot(b, LUMA);\n        prodA *= u_float0 * exp(-abs(la - prevA) * u_float1);\n        prodB *= u_float0 * exp(-abs(lb - prevB) * u_float1);\n        prevA = la;\n        prevB = lb;\n        accV += prodA * a + prodB * b;\n        accF += prodA + prodB;\n    }\n    return vec4(accV, accF);\n}\n\nvec4 bilateralV(vec2 stepv) {\n    vec4 tf = texture(u_image0, v_texCoord);\n    float lum0 = dot(texture(u_image1, v_texCoord).rgb, LUMA);\n    vec3 accV = 2.0 * tf.rgb;\n    float accF = 2.0 * tf.a;\n    float prodA = 1.0;\n    float prodB = 1.0;\n    float prevA = lum0;\n    float prevB = lum0;\n    for (int i = 1; i <= u_int1; i++) {\n        vec2 o = stepv * float(i);\n        vec4 a = texture(u_image0, v_texCoord + o);\n        vec4 b = texture(u_image0, v_texCoord - o);\n        float la = dot(texture(u_image1, v_texCoord + o).rgb, LUMA);\n        float lb = dot(texture(u_image1, v_texCoord - o).rgb, LUMA);\n        prodA *= u_float0 * exp(-abs(la - prevA) * u_float1);\n        prodB *= u_float0 * exp(-abs(lb - prevB) * u_float1);\n        prevA = la;\n        prevB = lb;\n        accV += prodA * a.rgb + prodB * b.rgb;\n        accF += prodA * a.a + prodB * b.a;\n    }\n    return vec4(clamp(accV / accF, 0.0, 1.0), 1.0);\n}\n\nfloat binomialLuma(vec2 stepv, bool fromRed) {\n    int s = u_int1;\n    float w = 1.0;\n    for (int k = 1; k <= s; k++) {\n        w *= (2.0 * float(k) - 1.0) / (2.0 * float(k));\n    }\n    vec4 c0 = texture(u_image0, v_texCoord);\n    float acc = w * (fromRed ? c0.r : dot(c0.rgb, LUMA));\n    for (int i = 0; i < s; i++) {\n        w = w * float(s - i) / float(s + i + 1);\n        vec2 o = stepv * float(i + 1);\n        vec4 a = texture(u_image0, v_texCoord + o);\n        vec4 b = texture(u_image0, v_texCoord - o);\n        float va = fromRed ? a.r : dot(a.rgb, LUMA);\n        float vb = fromRed ? b.r : dot(b.rgb, LUMA);\n        acc += w * (va + vb);\n    }\n    return acc;\n}\n\nvec4 sharpenCombine(vec2 stepv) {\n    float blurY = binomialLuma(stepv, true);\n    vec4 orig = texture(u_image1, v_texCoord);\n    float y = dot(orig.rgb, LUMA);\n    vec3 c = orig.rgb + vec3((y - blurY) * u_float2);\n    return vec4(clamp(c, 0.0, 1.0), orig.a);\n}\n\nvoid main() {\n    vec2 texel = 1.0 / u_resolution;\n    vec2 stepv = u_pass == 0 ? vec2(texel.x, 0.0) : vec2(0.0, texel.y);\n    if (u_int0 == 2) {\n        fragColor = u_pass == 0 ? bilateralH(stepv) : bilateralV(stepv);\n    } else if (u_int0 == 3) {\n        fragColor = u_pass == 0\n            ? vec4(vec3(binomialLuma(stepv, false)), 1.0)\n            : sharpenCombine(stepv);\n    } else {\n        fragColor = separableBlur(stepv);\n    }\n}\n";
 const MAX_BLUR_RADIUS = 64;
 const MAX_BILATERAL_RADIUS = 64;
 const TAIL_EPS = 1e-3;
@@ -127563,7 +127188,7 @@ class VideoBlurRenderer {
     this.ready = false;
   }
 }
-const videoStylizeFrag = "#version 300 es\r\nprecision highp float;\r\n\r\n#pragma passes 3\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_image1;\r\nuniform sampler2D u_curve0;\r\nuniform sampler2D u_curve1;\r\nuniform sampler2D u_curve2;\r\nuniform vec2 u_resolution;\r\nuniform int u_pass;\r\nuniform int u_int0;\r\nuniform int u_int1;\r\nuniform int u_int2;\r\nuniform int u_int3;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvec3 bytes(vec3 c) {\r\n    return floor(c * 255.0 + 0.5);\r\n}\r\n\r\nvec3 rgbToYuv(vec3 c) {\r\n    return vec3(\r\n        16.0 + 65.481 * c.r + 128.553 * c.g + 24.966 * c.b,\r\n        128.0 - 37.797 * c.r - 74.203 * c.g + 112.0 * c.b,\r\n        128.0 + 112.0 * c.r - 93.786 * c.g - 18.214 * c.b);\r\n}\r\n\r\nvec3 yuvToRgb(vec3 yuv) {\r\n    float y = (yuv.x - 16.0) / 219.0;\r\n    float pb = (yuv.y - 128.0) / 224.0;\r\n    float pr = (yuv.z - 128.0) / 224.0;\r\n    return clamp(vec3(\r\n        y + 1.402 * pr,\r\n        y - 0.344136 * pb - 0.714136 * pr,\r\n        y + 1.772 * pb), 0.0, 1.0);\r\n}\r\n\r\nfloat vigFactor(vec2 px) {\r\n    vec2 hc = u_resolution * 0.5;\r\n    vec2 d = trunc(px - hc);\r\n    float dnorm = length(d) / length(hc);\r\n    if (dnorm > 1.0) return 0.0;\r\n    float c = cos(clamp(u_float0, 0.0, 1.5707964) * dnorm);\r\n    return (c * c) * (c * c);\r\n}\r\n\r\nfloat hash01(ivec2 p, int frame, int plane) {\r\n    uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u\r\n        + uint(frame) * 2246822519u + uint(plane) * 3266489917u;\r\n    h ^= h >> 16;\r\n    h *= 2654435761u;\r\n    h ^= h >> 13;\r\n    h *= 2246822519u;\r\n    h ^= h >> 16;\r\n    return float(h) * (1.0 / 4294967296.0);\r\n}\r\n\r\nfloat noiseOff(ivec2 p, int plane) {\r\n    float s = float(u_int2);\r\n    return floor(hash01(p, u_int3, plane) * s) - float(u_int2 / 2);\r\n}\r\n\r\nvec3 applyVignette(vec3 c, ivec2 px) {\r\n    float f = vigFactor(vec2(px));\r\n    vec3 yuv = rgbToYuv(c);\r\n    return yuvToRgb(vec3(\r\n        clamp(floor(yuv.x * f), 0.0, 255.0),\r\n        clamp(floor(f * (yuv.y - 127.0) + 127.0), 0.0, 255.0),\r\n        clamp(floor(f * (yuv.z - 127.0) + 127.0), 0.0, 255.0)));\r\n}\r\n\r\nvec3 applyGrain(vec3 c, ivec2 px) {\r\n    vec3 yuv = rgbToYuv(c);\r\n    yuv.x = clamp(yuv.x + noiseOff(px, 0), 0.0, 255.0);\r\n    yuv.y = clamp(yuv.y + noiseOff(px, 1), 0.0, 255.0);\r\n    yuv.z = clamp(yuv.z + noiseOff(px, 2), 0.0, 255.0);\r\n    return yuvToRgb(yuv);\r\n}\r\n\r\nvec3 applySepia(vec3 c) {\r\n    vec3 b = bytes(c);\r\n    vec3 mixed = vec3(\r\n        floor(b.r * 0.393 + 0.5) + floor(b.g * 0.769 + 0.5) + floor(b.b * 0.189 + 0.5),\r\n        floor(b.r * 0.349 + 0.5) + floor(b.g * 0.686 + 0.5) + floor(b.b * 0.168 + 0.5),\r\n        floor(b.r * 0.272 + 0.5) + floor(b.g * 0.534 + 0.5) + floor(b.b * 0.131 + 0.5));\r\n    return clamp(mixed, 0.0, 255.0) / 255.0;\r\n}\r\n\r\nvec3 applyMonochrome(vec3 c) {\r\n    vec3 yuv = rgbToYuv(c);\r\n    float y = yuv.x / 255.0;\r\n    float u = yuv.y / 255.0 - 0.5;\r\n    float v = yuv.z / 255.0 - 0.5;\r\n    float ny = exp(-clamp(u * u + v * v, 0.0, 1.0));\r\n    float y2 = clamp(floor(ny * y * 255.0 + 0.5), 0.0, 255.0);\r\n    return yuvToRgb(vec3(y2, 128.0, 128.0));\r\n}\r\n\r\nfloat curveAt(sampler2D lut, float b) {\r\n    int idx = int(clamp(b, 0.0, 255.0));\r\n    return texelFetch(lut, ivec2(idx, 0), 0).r * 255.0;\r\n}\r\n\r\nvec3 applyOldFilm(vec3 c, ivec2 px) {\r\n    vec3 b = bytes(c);\r\n    b = vec3(curveAt(u_curve0, b.r), curveAt(u_curve1, b.g), curveAt(u_curve2, b.b));\r\n    b.r = clamp(b.r + noiseOff(px, 0), 0.0, 255.0);\r\n    b.g = clamp(b.g + noiseOff(px, 1), 0.0, 255.0);\r\n    b.b = clamp(b.b + noiseOff(px, 2), 0.0, 255.0);\r\n    float f = vigFactor(vec2(px));\r\n    return clamp(floor(b * f), 0.0, 255.0) / 255.0;\r\n}\r\n\r\nvec4 pixelizeRows(ivec2 t) {\r\n    int w = int(u_resolution.x);\r\n    int b = max(1, u_int1);\r\n    int bx = (t.x / b) * b;\r\n    int bw = min(b, w - bx);\r\n    vec3 acc = vec3(0.0);\r\n    for (int i = 0; i < 64; i++) {\r\n        if (i >= bw) break;\r\n        acc += texelFetch(u_image0, ivec2(bx + i, t.y), 0).rgb;\r\n    }\r\n    return vec4(acc / float(bw), 1.0);\r\n}\r\n\r\nvec4 pixelizeCols(ivec2 t) {\r\n    int h = int(u_resolution.y);\r\n    int b = max(1, u_int1);\r\n    int vy = h - 1 - t.y;\r\n    int vby = (vy / b) * b;\r\n    int bh = min(b, h - vby);\r\n    vec3 acc = vec3(0.0);\r\n    for (int j = 0; j < 64; j++) {\r\n        if (j >= bh) break;\r\n        acc += texelFetch(u_image0, ivec2(t.x, h - 1 - (vby + j)), 0).rgb;\r\n    }\r\n    return vec4(acc / float(bh), 1.0);\r\n}\r\n\r\nvec4 edgeGaussian(ivec2 t) {\r\n    int w = int(u_resolution.x);\r\n    int h = int(u_resolution.y);\r\n    vec3 src = bytes(texelFetch(u_image0, t, 0).rgb);\r\n    if (t.x < 2 || t.x >= w - 2 || t.y < 2 || t.y >= h - 2) {\r\n        return vec4(src, 255.0);\r\n    }\r\n    float k[25] = float[25](\r\n        2.0, 4.0, 5.0, 4.0, 2.0,\r\n        4.0, 9.0, 12.0, 9.0, 4.0,\r\n        5.0, 12.0, 15.0, 12.0, 5.0,\r\n        4.0, 9.0, 12.0, 9.0, 4.0,\r\n        2.0, 4.0, 5.0, 4.0, 2.0);\r\n    vec3 acc = vec3(0.0);\r\n    for (int dy = -2; dy <= 2; dy++) {\r\n        for (int dx = -2; dx <= 2; dx++) {\r\n            acc += k[(dy + 2) * 5 + dx + 2]\r\n                * bytes(texelFetch(u_image0, t + ivec2(dx, dy), 0).rgb);\r\n        }\r\n    }\r\n    return vec4(floor(acc / 159.0 + 1e-3), 255.0);\r\n}\r\n\r\nvoid sobelAt(ivec2 t, out vec3 gx, out vec3 gy) {\r\n    vec3 a = texelFetch(u_image0, t + ivec2(-1, -1), 0).rgb;\r\n    vec3 b = texelFetch(u_image0, t + ivec2(0, -1), 0).rgb;\r\n    vec3 c = texelFetch(u_image0, t + ivec2(1, -1), 0).rgb;\r\n    vec3 d = texelFetch(u_image0, t + ivec2(-1, 0), 0).rgb;\r\n    vec3 f = texelFetch(u_image0, t + ivec2(1, 0), 0).rgb;\r\n    vec3 g = texelFetch(u_image0, t + ivec2(-1, 1), 0).rgb;\r\n    vec3 hh = texelFetch(u_image0, t + ivec2(0, 1), 0).rgb;\r\n    vec3 i = texelFetch(u_image0, t + ivec2(1, 1), 0).rgb;\r\n    gx = -a + c - 2.0 * d + 2.0 * f - g + i;\r\n    gy = -a + g - 2.0 * b + 2.0 * hh - c + i;\r\n}\r\n\r\nvec3 sobelMagAt(ivec2 t, int w, int h) {\r\n    if (t.x < 1 || t.x >= w - 1 || t.y < 1 || t.y >= h - 1) return vec3(0.0);\r\n    vec3 gx;\r\n    vec3 gy;\r\n    sobelAt(t, gx, gy);\r\n    return abs(gx) + abs(gy);\r\n}\r\n\r\nint dirClass(float gxf, float gyf) {\r\n    int gx = int(gxf);\r\n    int gy = int(gyf);\r\n    if (gx != 0) {\r\n        if (gx < 0) {\r\n            gx = -gx;\r\n            gy = -gy;\r\n        }\r\n        int gy16 = gy * 65536;\r\n        int tanPi8 = 27146 * gx;\r\n        int tan3Pi8 = 158218 * gx;\r\n        if (gy16 > -tan3Pi8 && gy16 < -tanPi8) return 0;\r\n        if (gy16 > -tanPi8 && gy16 < tanPi8) return 2;\r\n        if (gy16 > tanPi8 && gy16 < tan3Pi8) return 1;\r\n    }\r\n    return 3;\r\n}\r\n\r\nvec4 edgeSobelNms(ivec2 t) {\r\n    int w = int(u_resolution.x);\r\n    int h = int(u_resolution.y);\r\n    if (t.x < 1 || t.x >= w - 1 || t.y < 1 || t.y >= h - 1) {\r\n        return vec4(0.0, 0.0, 0.0, 255.0);\r\n    }\r\n    vec3 gx;\r\n    vec3 gy;\r\n    sobelAt(t, gx, gy);\r\n    vec3 mag = abs(gx) + abs(gy);\r\n    vec3 res = vec3(0.0);\r\n    for (int ch = 0; ch < 3; ch++) {\r\n        int dir = dirClass(gx[ch], gy[ch]);\r\n        ivec2 o1 = dir == 0 ? ivec2(-1, 1)\r\n            : dir == 1 ? ivec2(-1, -1)\r\n            : dir == 2 ? ivec2(-1, 0)\r\n            : ivec2(0, -1);\r\n        ivec2 o2 = -o1;\r\n        float m1 = sobelMagAt(t + o1, w, h)[ch];\r\n        float m2 = sobelMagAt(t + o2, w, h)[ch];\r\n        if (mag[ch] > m1 && mag[ch] > m2) res[ch] = min(mag[ch], 255.0);\r\n    }\r\n    return vec4(res, 255.0);\r\n}\r\n\r\nvec4 edgeThreshold(ivec2 t) {\r\n    int w = int(u_resolution.x);\r\n    int h = int(u_resolution.y);\r\n    vec3 nms = texelFetch(u_image0, t, 0).rgb;\r\n    vec3 orig = bytes(texture(u_image1, v_texCoord).rgb);\r\n    bool interior = t.x > 0 && t.x < w - 1 && t.y > 0 && t.y < h - 1;\r\n    vec3 maxN = vec3(0.0);\r\n    if (interior) {\r\n        for (int dy = -1; dy <= 1; dy++) {\r\n            for (int dx = -1; dx <= 1; dx++) {\r\n                if (dx == 0 && dy == 0) continue;\r\n                maxN = max(maxN, texelFetch(u_image0, t + ivec2(dx, dy), 0).rgb);\r\n            }\r\n        }\r\n    }\r\n    vec3 res;\r\n    for (int ch = 0; ch < 3; ch++) {\r\n        float v = nms[ch];\r\n        float kept = 0.0;\r\n        if (v > u_float2) kept = v;\r\n        else if (interior && v > u_float1 && maxN[ch] > u_float2) kept = v;\r\n        res[ch] = floor((kept + orig[ch]) * 0.5);\r\n    }\r\n    return vec4(res / 255.0, 1.0);\r\n}\r\n\r\nvoid main() {\r\n    ivec2 t = ivec2(gl_FragCoord.xy);\r\n    ivec2 vp = ivec2(t.x, int(u_resolution.y) - 1 - t.y);\r\n    if (u_int0 == 2) {\r\n        if (u_pass == 0) fragColor = pixelizeRows(t);\r\n        else if (u_pass == 1) fragColor = pixelizeCols(t);\r\n        else fragColor = vec4(texelFetch(u_image0, t, 0).rgb, 1.0);\r\n        return;\r\n    }\r\n    if (u_int0 == 3) {\r\n        if (u_pass == 0) fragColor = edgeGaussian(t);\r\n        else if (u_pass == 1) fragColor = edgeSobelNms(t);\r\n        else fragColor = edgeThreshold(t);\r\n        return;\r\n    }\r\n    if (u_pass < 2) {\r\n        fragColor = vec4(0.0);\r\n        return;\r\n    }\r\n    vec4 tex = texture(u_image1, v_texCoord);\r\n    vec3 c = tex.rgb;\r\n    if (u_int0 == 0) c = applyVignette(c, vp);\r\n    else if (u_int0 == 1) c = applyGrain(c, vp);\r\n    else if (u_int0 == 4) c = applySepia(c);\r\n    else if (u_int0 == 5) c = applyMonochrome(c);\r\n    else if (u_int0 == 6) c = applyOldFilm(c, vp);\r\n    fragColor = vec4(c, tex.a);\r\n}\r\n";
+const videoStylizeFrag = "#version 300 es\nprecision highp float;\n\n#pragma passes 3\n\nuniform sampler2D u_image0;\nuniform sampler2D u_image1;\nuniform sampler2D u_curve0;\nuniform sampler2D u_curve1;\nuniform sampler2D u_curve2;\nuniform vec2 u_resolution;\nuniform int u_pass;\nuniform int u_int0;\nuniform int u_int1;\nuniform int u_int2;\nuniform int u_int3;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvec3 bytes(vec3 c) {\n    return floor(c * 255.0 + 0.5);\n}\n\nvec3 rgbToYuv(vec3 c) {\n    return vec3(\n        16.0 + 65.481 * c.r + 128.553 * c.g + 24.966 * c.b,\n        128.0 - 37.797 * c.r - 74.203 * c.g + 112.0 * c.b,\n        128.0 + 112.0 * c.r - 93.786 * c.g - 18.214 * c.b);\n}\n\nvec3 yuvToRgb(vec3 yuv) {\n    float y = (yuv.x - 16.0) / 219.0;\n    float pb = (yuv.y - 128.0) / 224.0;\n    float pr = (yuv.z - 128.0) / 224.0;\n    return clamp(vec3(\n        y + 1.402 * pr,\n        y - 0.344136 * pb - 0.714136 * pr,\n        y + 1.772 * pb), 0.0, 1.0);\n}\n\nfloat vigFactor(vec2 px) {\n    vec2 hc = u_resolution * 0.5;\n    vec2 d = trunc(px - hc);\n    float dnorm = length(d) / length(hc);\n    if (dnorm > 1.0) return 0.0;\n    float c = cos(clamp(u_float0, 0.0, 1.5707964) * dnorm);\n    return (c * c) * (c * c);\n}\n\nfloat hash01(ivec2 p, int frame, int plane) {\n    uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u\n        + uint(frame) * 2246822519u + uint(plane) * 3266489917u;\n    h ^= h >> 16;\n    h *= 2654435761u;\n    h ^= h >> 13;\n    h *= 2246822519u;\n    h ^= h >> 16;\n    return float(h) * (1.0 / 4294967296.0);\n}\n\nfloat noiseOff(ivec2 p, int plane) {\n    float s = float(u_int2);\n    return floor(hash01(p, u_int3, plane) * s) - float(u_int2 / 2);\n}\n\nvec3 applyVignette(vec3 c, ivec2 px) {\n    float f = vigFactor(vec2(px));\n    vec3 yuv = rgbToYuv(c);\n    return yuvToRgb(vec3(\n        clamp(floor(yuv.x * f), 0.0, 255.0),\n        clamp(floor(f * (yuv.y - 127.0) + 127.0), 0.0, 255.0),\n        clamp(floor(f * (yuv.z - 127.0) + 127.0), 0.0, 255.0)));\n}\n\nvec3 applyGrain(vec3 c, ivec2 px) {\n    vec3 yuv = rgbToYuv(c);\n    yuv.x = clamp(yuv.x + noiseOff(px, 0), 0.0, 255.0);\n    yuv.y = clamp(yuv.y + noiseOff(px, 1), 0.0, 255.0);\n    yuv.z = clamp(yuv.z + noiseOff(px, 2), 0.0, 255.0);\n    return yuvToRgb(yuv);\n}\n\nvec3 applySepia(vec3 c) {\n    vec3 b = bytes(c);\n    vec3 mixed = vec3(\n        floor(b.r * 0.393 + 0.5) + floor(b.g * 0.769 + 0.5) + floor(b.b * 0.189 + 0.5),\n        floor(b.r * 0.349 + 0.5) + floor(b.g * 0.686 + 0.5) + floor(b.b * 0.168 + 0.5),\n        floor(b.r * 0.272 + 0.5) + floor(b.g * 0.534 + 0.5) + floor(b.b * 0.131 + 0.5));\n    return clamp(mixed, 0.0, 255.0) / 255.0;\n}\n\nvec3 applyMonochrome(vec3 c) {\n    vec3 yuv = rgbToYuv(c);\n    float y = yuv.x / 255.0;\n    float u = yuv.y / 255.0 - 0.5;\n    float v = yuv.z / 255.0 - 0.5;\n    float ny = exp(-clamp(u * u + v * v, 0.0, 1.0));\n    float y2 = clamp(floor(ny * y * 255.0 + 0.5), 0.0, 255.0);\n    return yuvToRgb(vec3(y2, 128.0, 128.0));\n}\n\nfloat curveAt(sampler2D lut, float b) {\n    int idx = int(clamp(b, 0.0, 255.0));\n    return texelFetch(lut, ivec2(idx, 0), 0).r * 255.0;\n}\n\nvec3 applyOldFilm(vec3 c, ivec2 px) {\n    vec3 b = bytes(c);\n    b = vec3(curveAt(u_curve0, b.r), curveAt(u_curve1, b.g), curveAt(u_curve2, b.b));\n    b.r = clamp(b.r + noiseOff(px, 0), 0.0, 255.0);\n    b.g = clamp(b.g + noiseOff(px, 1), 0.0, 255.0);\n    b.b = clamp(b.b + noiseOff(px, 2), 0.0, 255.0);\n    float f = vigFactor(vec2(px));\n    return clamp(floor(b * f), 0.0, 255.0) / 255.0;\n}\n\nvec4 pixelizeRows(ivec2 t) {\n    int w = int(u_resolution.x);\n    int b = max(1, u_int1);\n    int bx = (t.x / b) * b;\n    int bw = min(b, w - bx);\n    vec3 acc = vec3(0.0);\n    for (int i = 0; i < 64; i++) {\n        if (i >= bw) break;\n        acc += texelFetch(u_image0, ivec2(bx + i, t.y), 0).rgb;\n    }\n    return vec4(acc / float(bw), 1.0);\n}\n\nvec4 pixelizeCols(ivec2 t) {\n    int h = int(u_resolution.y);\n    int b = max(1, u_int1);\n    int vy = h - 1 - t.y;\n    int vby = (vy / b) * b;\n    int bh = min(b, h - vby);\n    vec3 acc = vec3(0.0);\n    for (int j = 0; j < 64; j++) {\n        if (j >= bh) break;\n        acc += texelFetch(u_image0, ivec2(t.x, h - 1 - (vby + j)), 0).rgb;\n    }\n    return vec4(acc / float(bh), 1.0);\n}\n\nvec4 edgeGaussian(ivec2 t) {\n    int w = int(u_resolution.x);\n    int h = int(u_resolution.y);\n    vec3 src = bytes(texelFetch(u_image0, t, 0).rgb);\n    if (t.x < 2 || t.x >= w - 2 || t.y < 2 || t.y >= h - 2) {\n        return vec4(src, 255.0);\n    }\n    float k[25] = float[25](\n        2.0, 4.0, 5.0, 4.0, 2.0,\n        4.0, 9.0, 12.0, 9.0, 4.0,\n        5.0, 12.0, 15.0, 12.0, 5.0,\n        4.0, 9.0, 12.0, 9.0, 4.0,\n        2.0, 4.0, 5.0, 4.0, 2.0);\n    vec3 acc = vec3(0.0);\n    for (int dy = -2; dy <= 2; dy++) {\n        for (int dx = -2; dx <= 2; dx++) {\n            acc += k[(dy + 2) * 5 + dx + 2]\n                * bytes(texelFetch(u_image0, t + ivec2(dx, dy), 0).rgb);\n        }\n    }\n    return vec4(floor(acc / 159.0 + 1e-3), 255.0);\n}\n\nvoid sobelAt(ivec2 t, out vec3 gx, out vec3 gy) {\n    vec3 a = texelFetch(u_image0, t + ivec2(-1, -1), 0).rgb;\n    vec3 b = texelFetch(u_image0, t + ivec2(0, -1), 0).rgb;\n    vec3 c = texelFetch(u_image0, t + ivec2(1, -1), 0).rgb;\n    vec3 d = texelFetch(u_image0, t + ivec2(-1, 0), 0).rgb;\n    vec3 f = texelFetch(u_image0, t + ivec2(1, 0), 0).rgb;\n    vec3 g = texelFetch(u_image0, t + ivec2(-1, 1), 0).rgb;\n    vec3 hh = texelFetch(u_image0, t + ivec2(0, 1), 0).rgb;\n    vec3 i = texelFetch(u_image0, t + ivec2(1, 1), 0).rgb;\n    gx = -a + c - 2.0 * d + 2.0 * f - g + i;\n    gy = -a + g - 2.0 * b + 2.0 * hh - c + i;\n}\n\nvec3 sobelMagAt(ivec2 t, int w, int h) {\n    if (t.x < 1 || t.x >= w - 1 || t.y < 1 || t.y >= h - 1) return vec3(0.0);\n    vec3 gx;\n    vec3 gy;\n    sobelAt(t, gx, gy);\n    return abs(gx) + abs(gy);\n}\n\nint dirClass(float gxf, float gyf) {\n    int gx = int(gxf);\n    int gy = int(gyf);\n    if (gx != 0) {\n        if (gx < 0) {\n            gx = -gx;\n            gy = -gy;\n        }\n        int gy16 = gy * 65536;\n        int tanPi8 = 27146 * gx;\n        int tan3Pi8 = 158218 * gx;\n        if (gy16 > -tan3Pi8 && gy16 < -tanPi8) return 0;\n        if (gy16 > -tanPi8 && gy16 < tanPi8) return 2;\n        if (gy16 > tanPi8 && gy16 < tan3Pi8) return 1;\n    }\n    return 3;\n}\n\nvec4 edgeSobelNms(ivec2 t) {\n    int w = int(u_resolution.x);\n    int h = int(u_resolution.y);\n    if (t.x < 1 || t.x >= w - 1 || t.y < 1 || t.y >= h - 1) {\n        return vec4(0.0, 0.0, 0.0, 255.0);\n    }\n    vec3 gx;\n    vec3 gy;\n    sobelAt(t, gx, gy);\n    vec3 mag = abs(gx) + abs(gy);\n    vec3 res = vec3(0.0);\n    for (int ch = 0; ch < 3; ch++) {\n        int dir = dirClass(gx[ch], gy[ch]);\n        ivec2 o1 = dir == 0 ? ivec2(-1, 1)\n            : dir == 1 ? ivec2(-1, -1)\n            : dir == 2 ? ivec2(-1, 0)\n            : ivec2(0, -1);\n        ivec2 o2 = -o1;\n        float m1 = sobelMagAt(t + o1, w, h)[ch];\n        float m2 = sobelMagAt(t + o2, w, h)[ch];\n        if (mag[ch] > m1 && mag[ch] > m2) res[ch] = min(mag[ch], 255.0);\n    }\n    return vec4(res, 255.0);\n}\n\nvec4 edgeThreshold(ivec2 t) {\n    int w = int(u_resolution.x);\n    int h = int(u_resolution.y);\n    vec3 nms = texelFetch(u_image0, t, 0).rgb;\n    vec3 orig = bytes(texture(u_image1, v_texCoord).rgb);\n    bool interior = t.x > 0 && t.x < w - 1 && t.y > 0 && t.y < h - 1;\n    vec3 maxN = vec3(0.0);\n    if (interior) {\n        for (int dy = -1; dy <= 1; dy++) {\n            for (int dx = -1; dx <= 1; dx++) {\n                if (dx == 0 && dy == 0) continue;\n                maxN = max(maxN, texelFetch(u_image0, t + ivec2(dx, dy), 0).rgb);\n            }\n        }\n    }\n    vec3 res;\n    for (int ch = 0; ch < 3; ch++) {\n        float v = nms[ch];\n        float kept = 0.0;\n        if (v > u_float2) kept = v;\n        else if (interior && v > u_float1 && maxN[ch] > u_float2) kept = v;\n        res[ch] = floor((kept + orig[ch]) * 0.5);\n    }\n    return vec4(res / 255.0, 1.0);\n}\n\nvoid main() {\n    ivec2 t = ivec2(gl_FragCoord.xy);\n    ivec2 vp = ivec2(t.x, int(u_resolution.y) - 1 - t.y);\n    if (u_int0 == 2) {\n        if (u_pass == 0) fragColor = pixelizeRows(t);\n        else if (u_pass == 1) fragColor = pixelizeCols(t);\n        else fragColor = vec4(texelFetch(u_image0, t, 0).rgb, 1.0);\n        return;\n    }\n    if (u_int0 == 3) {\n        if (u_pass == 0) fragColor = edgeGaussian(t);\n        else if (u_pass == 1) fragColor = edgeSobelNms(t);\n        else fragColor = edgeThreshold(t);\n        return;\n    }\n    if (u_pass < 2) {\n        fragColor = vec4(0.0);\n        return;\n    }\n    vec4 tex = texture(u_image1, v_texCoord);\n    vec3 c = tex.rgb;\n    if (u_int0 == 0) c = applyVignette(c, vp);\n    else if (u_int0 == 1) c = applyGrain(c, vp);\n    else if (u_int0 == 4) c = applySepia(c);\n    else if (u_int0 == 5) c = applyMonochrome(c);\n    else if (u_int0 == 6) c = applyOldFilm(c, vp);\n    fragColor = vec4(c, tex.a);\n}\n";
 const STYLIZE_EFFECTS = [
   "vignette",
   "grain",
@@ -127728,7 +127353,7 @@ class VideoStylizeRenderer {
     this.lutsUploaded = false;
   }
 }
-const videoLutFrag = "#version 300 es\r\nprecision highp float;\r\nprecision highp int;\r\nprecision highp sampler3D;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler3D u_lut;\r\nuniform int u_hasLut;\r\nuniform int u_interp;\r\nuniform int u_lutMax;\r\nuniform vec3 u_scale;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvec3 fetchLut(int r, int g, int b) {\r\n    return texelFetch(u_lut, ivec3(b, g, r), 0).rgb;\r\n}\r\n\r\nvec3 lutNearest(vec3 s) {\r\n    ivec3 n = ivec3(s + 0.5);\r\n    return fetchLut(n.r, n.g, n.b);\r\n}\r\n\r\nvec3 lutTrilinear(vec3 s) {\r\n    ivec3 p = ivec3(s);\r\n    ivec3 n = min(p + 1, ivec3(u_lutMax));\r\n    vec3 d = s - vec3(p);\r\n    vec3 c000 = fetchLut(p.r, p.g, p.b);\r\n    vec3 c001 = fetchLut(p.r, p.g, n.b);\r\n    vec3 c010 = fetchLut(p.r, n.g, p.b);\r\n    vec3 c011 = fetchLut(p.r, n.g, n.b);\r\n    vec3 c100 = fetchLut(n.r, p.g, p.b);\r\n    vec3 c101 = fetchLut(n.r, p.g, n.b);\r\n    vec3 c110 = fetchLut(n.r, n.g, p.b);\r\n    vec3 c111 = fetchLut(n.r, n.g, n.b);\r\n    vec3 c00 = mix(c000, c100, d.r);\r\n    vec3 c10 = mix(c010, c110, d.r);\r\n    vec3 c01 = mix(c001, c101, d.r);\r\n    vec3 c11 = mix(c011, c111, d.r);\r\n    vec3 c0 = mix(c00, c10, d.g);\r\n    vec3 c1 = mix(c01, c11, d.g);\r\n    return mix(c0, c1, d.b);\r\n}\r\n\r\nvec3 lutTetrahedral(vec3 s) {\r\n    ivec3 p = ivec3(s);\r\n    ivec3 n = min(p + 1, ivec3(u_lutMax));\r\n    vec3 d = s - vec3(p);\r\n    vec3 c000 = fetchLut(p.r, p.g, p.b);\r\n    vec3 c111 = fetchLut(n.r, n.g, n.b);\r\n    if (d.r > d.g) {\r\n        if (d.g > d.b) {\r\n            vec3 c100 = fetchLut(n.r, p.g, p.b);\r\n            vec3 c110 = fetchLut(n.r, n.g, p.b);\r\n            return (1.0 - d.r) * c000 + (d.r - d.g) * c100 + (d.g - d.b) * c110 + d.b * c111;\r\n        } else if (d.r > d.b) {\r\n            vec3 c100 = fetchLut(n.r, p.g, p.b);\r\n            vec3 c101 = fetchLut(n.r, p.g, n.b);\r\n            return (1.0 - d.r) * c000 + (d.r - d.b) * c100 + (d.b - d.g) * c101 + d.g * c111;\r\n        } else {\r\n            vec3 c001 = fetchLut(p.r, p.g, n.b);\r\n            vec3 c101 = fetchLut(n.r, p.g, n.b);\r\n            return (1.0 - d.b) * c000 + (d.b - d.r) * c001 + (d.r - d.g) * c101 + d.g * c111;\r\n        }\r\n    } else {\r\n        if (d.b > d.g) {\r\n            vec3 c001 = fetchLut(p.r, p.g, n.b);\r\n            vec3 c011 = fetchLut(p.r, n.g, n.b);\r\n            return (1.0 - d.b) * c000 + (d.b - d.g) * c001 + (d.g - d.r) * c011 + d.r * c111;\r\n        } else if (d.b > d.r) {\r\n            vec3 c010 = fetchLut(p.r, n.g, p.b);\r\n            vec3 c011 = fetchLut(p.r, n.g, n.b);\r\n            return (1.0 - d.g) * c000 + (d.g - d.b) * c010 + (d.b - d.r) * c011 + d.r * c111;\r\n        } else {\r\n            vec3 c010 = fetchLut(p.r, n.g, p.b);\r\n            vec3 c110 = fetchLut(n.r, n.g, p.b);\r\n            return (1.0 - d.g) * c000 + (d.g - d.r) * c010 + (d.r - d.b) * c110 + d.b * c111;\r\n        }\r\n    }\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    if (u_hasLut == 0) {\r\n        fragColor = tex;\r\n        return;\r\n    }\r\n    vec3 s = clamp(tex.rgb * u_scale, vec3(0.0), vec3(float(u_lutMax)));\r\n    vec3 c;\r\n    if (u_interp == 0) {\r\n        c = lutNearest(s);\r\n    } else if (u_interp == 1) {\r\n        c = lutTrilinear(s);\r\n    } else {\r\n        c = lutTetrahedral(s);\r\n    }\r\n    c = floor(clamp(c, 0.0, 1.0) * 255.0) / 255.0;\r\n    fragColor = vec4(c, tex.a);\r\n}\r\n";
+const videoLutFrag = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler3D;\n\nuniform sampler2D u_image0;\nuniform sampler3D u_lut;\nuniform int u_hasLut;\nuniform int u_interp;\nuniform int u_lutMax;\nuniform vec3 u_scale;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvec3 fetchLut(int r, int g, int b) {\n    return texelFetch(u_lut, ivec3(b, g, r), 0).rgb;\n}\n\nvec3 lutNearest(vec3 s) {\n    ivec3 n = ivec3(s + 0.5);\n    return fetchLut(n.r, n.g, n.b);\n}\n\nvec3 lutTrilinear(vec3 s) {\n    ivec3 p = ivec3(s);\n    ivec3 n = min(p + 1, ivec3(u_lutMax));\n    vec3 d = s - vec3(p);\n    vec3 c000 = fetchLut(p.r, p.g, p.b);\n    vec3 c001 = fetchLut(p.r, p.g, n.b);\n    vec3 c010 = fetchLut(p.r, n.g, p.b);\n    vec3 c011 = fetchLut(p.r, n.g, n.b);\n    vec3 c100 = fetchLut(n.r, p.g, p.b);\n    vec3 c101 = fetchLut(n.r, p.g, n.b);\n    vec3 c110 = fetchLut(n.r, n.g, p.b);\n    vec3 c111 = fetchLut(n.r, n.g, n.b);\n    vec3 c00 = mix(c000, c100, d.r);\n    vec3 c10 = mix(c010, c110, d.r);\n    vec3 c01 = mix(c001, c101, d.r);\n    vec3 c11 = mix(c011, c111, d.r);\n    vec3 c0 = mix(c00, c10, d.g);\n    vec3 c1 = mix(c01, c11, d.g);\n    return mix(c0, c1, d.b);\n}\n\nvec3 lutTetrahedral(vec3 s) {\n    ivec3 p = ivec3(s);\n    ivec3 n = min(p + 1, ivec3(u_lutMax));\n    vec3 d = s - vec3(p);\n    vec3 c000 = fetchLut(p.r, p.g, p.b);\n    vec3 c111 = fetchLut(n.r, n.g, n.b);\n    if (d.r > d.g) {\n        if (d.g > d.b) {\n            vec3 c100 = fetchLut(n.r, p.g, p.b);\n            vec3 c110 = fetchLut(n.r, n.g, p.b);\n            return (1.0 - d.r) * c000 + (d.r - d.g) * c100 + (d.g - d.b) * c110 + d.b * c111;\n        } else if (d.r > d.b) {\n            vec3 c100 = fetchLut(n.r, p.g, p.b);\n            vec3 c101 = fetchLut(n.r, p.g, n.b);\n            return (1.0 - d.r) * c000 + (d.r - d.b) * c100 + (d.b - d.g) * c101 + d.g * c111;\n        } else {\n            vec3 c001 = fetchLut(p.r, p.g, n.b);\n            vec3 c101 = fetchLut(n.r, p.g, n.b);\n            return (1.0 - d.b) * c000 + (d.b - d.r) * c001 + (d.r - d.g) * c101 + d.g * c111;\n        }\n    } else {\n        if (d.b > d.g) {\n            vec3 c001 = fetchLut(p.r, p.g, n.b);\n            vec3 c011 = fetchLut(p.r, n.g, n.b);\n            return (1.0 - d.b) * c000 + (d.b - d.g) * c001 + (d.g - d.r) * c011 + d.r * c111;\n        } else if (d.b > d.r) {\n            vec3 c010 = fetchLut(p.r, n.g, p.b);\n            vec3 c011 = fetchLut(p.r, n.g, n.b);\n            return (1.0 - d.g) * c000 + (d.g - d.b) * c010 + (d.b - d.r) * c011 + d.r * c111;\n        } else {\n            vec3 c010 = fetchLut(p.r, n.g, p.b);\n            vec3 c110 = fetchLut(n.r, n.g, p.b);\n            return (1.0 - d.g) * c000 + (d.g - d.r) * c010 + (d.r - d.b) * c110 + d.b * c111;\n        }\n    }\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    if (u_hasLut == 0) {\n        fragColor = tex;\n        return;\n    }\n    vec3 s = clamp(tex.rgb * u_scale, vec3(0.0), vec3(float(u_lutMax)));\n    vec3 c;\n    if (u_interp == 0) {\n        c = lutNearest(s);\n    } else if (u_interp == 1) {\n        c = lutTrilinear(s);\n    } else {\n        c = lutTetrahedral(s);\n    }\n    c = floor(clamp(c, 0.0, 1.0) * 255.0) / 255.0;\n    fragColor = vec4(c, tex.a);\n}\n";
 const PREVIEWABLE_LUT_EXTENSIONS = [".cube", ".3dl"];
 const MAX_LEVEL = 256;
 const THREEDL_SIZE = 17;
@@ -128032,7 +127657,7 @@ class VideoLutRenderer {
     this.untrack();
   }
 }
-const videoHueCorrectFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_curve0;\r\nuniform sampler2D u_curve1;\r\nuniform sampler2D u_curve2;\r\nuniform sampler2D u_curve3;\r\nuniform sampler2D u_curve4;\r\nuniform sampler2D u_curve5;\r\nuniform sampler2D u_curve6;\r\nuniform sampler2D u_curve7;\r\nuniform sampler2D u_curve8;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform bool u_bool0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\r\nconst float EPS = 1e-8;\r\n\r\nfloat sampleLut(sampler2D lut, float coord) {\r\n    float idx = clamp(coord, 0.0, 1.0) * 255.0;\r\n    int lo = int(floor(idx));\r\n    int hi = min(lo + 1, 255);\r\n    float f = idx - float(lo);\r\n    return mix(texelFetch(lut, ivec2(lo, 0), 0).r,\r\n               texelFetch(lut, ivec2(hi, 0), 0).r, f);\r\n}\r\n\r\nvec3 rgbToHsv(vec3 c) {\r\n    float maxc = c.r;\r\n    int argmax = 0;\r\n    if (c.g > maxc) { maxc = c.g; argmax = 1; }\r\n    if (c.b > maxc) { maxc = c.b; argmax = 2; }\r\n    float minc = min(c.r, min(c.g, c.b));\r\n    float deltac = maxc - minc;\r\n    float s = deltac / (maxc + EPS);\r\n    float dc = deltac == 0.0 ? 1.0 : deltac;\r\n    vec3 comp = vec3(maxc) - c;\r\n    float h;\r\n    if (argmax == 0) h = comp.b - comp.g;\r\n    else if (argmax == 1) h = comp.r - comp.b + 2.0 * dc;\r\n    else h = comp.g - comp.r + 4.0 * dc;\r\n    h = fract(h / dc / 6.0);\r\n    return vec3(h, s, maxc);\r\n}\r\n\r\nvec3 hsvToRgb(vec3 hsv) {\r\n    float h6 = fract(hsv.x) * 6.0;\r\n    float hi = floor(h6);\r\n    float f = h6 - hi;\r\n    float v = hsv.z;\r\n    float s = hsv.y;\r\n    float p = v * (1.0 - s);\r\n    float q = v * (1.0 - f * s);\r\n    float t = v * (1.0 - (1.0 - f) * s);\r\n    int i = int(hi) % 6;\r\n    if (i == 0) return vec3(v, t, p);\r\n    if (i == 1) return vec3(q, v, p);\r\n    if (i == 2) return vec3(p, v, t);\r\n    if (i == 3) return vec3(p, q, v);\r\n    if (i == 4) return vec3(t, p, v);\r\n    return vec3(v, p, q);\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 src = clamp(tex.rgb, 0.0, 1.0);\r\n    vec3 hsv = rgbToHsv(src);\r\n    float h0 = hsv.x;\r\n    float s = hsv.y;\r\n    float hx = h0 * 6.0 + 1.0;\r\n    hx = (hx > 6.0 ? hx - 6.0 : hx) / 6.0;\r\n    float lumIn = dot(tex.rgb, LUMA);\r\n\r\n    vec3 outc = src;\r\n    if (u_bool0) {\r\n        float hueShift = sampleLut(u_curve8, hx);\r\n        float h1 = fract(h0 + (hueShift - 1.0) / 2.0);\r\n        outc = hsvToRgb(vec3(h1, s, hsv.z));\r\n    }\r\n\r\n    float rSup = sampleLut(u_curve5, hx);\r\n    float mn = min(outc.g, outc.b);\r\n    if (outc.r > mn) outc.r = mn + rSup * (outc.r - mn);\r\n    float gSup = sampleLut(u_curve6, hx);\r\n    mn = min(outc.r, outc.b);\r\n    if (outc.g > mn) outc.g = mn + gSup * (outc.g - mn);\r\n    float bSup = sampleLut(u_curve7, hx);\r\n    mn = min(outc.r, outc.g);\r\n    if (outc.b > mn) outc.b = mn + bSup * (outc.b - mn);\r\n\r\n    float lumGain = sampleLut(u_curve1, hx);\r\n    vec3 gains = vec3(sampleLut(u_curve2, hx),\r\n                      sampleLut(u_curve3, hx),\r\n                      sampleLut(u_curve4, hx)) * lumGain;\r\n    float thr = clamp(u_float0, 0.0, 1.0);\r\n    if (thr > 0.0) {\r\n        vec3 factor = s > thr\r\n            ? (thr + (s - thr) * gains) / max(s, 1e-6)\r\n            : vec3(1.0);\r\n        outc *= factor;\r\n    } else {\r\n        outc *= gains;\r\n    }\r\n\r\n    float satGain = sampleLut(u_curve0, hx);\r\n    float lSat = dot(outc, LUMA);\r\n    outc = mix(vec3(lSat), outc, satGain);\r\n\r\n    float mixv = clamp(u_float1, 0.0, 1.0);\r\n    if (mixv > 0.0) {\r\n        float lumOut = max(dot(outc, LUMA), 1e-6);\r\n        outc *= 1.0 + mixv * (lumIn / lumOut - 1.0);\r\n    }\r\n\r\n    fragColor = vec4(clamp(outc, 0.0, 1.0), tex.a);\r\n}\r\n";
+const videoHueCorrectFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform sampler2D u_curve0;\nuniform sampler2D u_curve1;\nuniform sampler2D u_curve2;\nuniform sampler2D u_curve3;\nuniform sampler2D u_curve4;\nuniform sampler2D u_curve5;\nuniform sampler2D u_curve6;\nuniform sampler2D u_curve7;\nuniform sampler2D u_curve8;\nuniform float u_float0;\nuniform float u_float1;\nuniform bool u_bool0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\nconst float EPS = 1e-8;\n\nfloat sampleLut(sampler2D lut, float coord) {\n    float idx = clamp(coord, 0.0, 1.0) * 255.0;\n    int lo = int(floor(idx));\n    int hi = min(lo + 1, 255);\n    float f = idx - float(lo);\n    return mix(texelFetch(lut, ivec2(lo, 0), 0).r,\n               texelFetch(lut, ivec2(hi, 0), 0).r, f);\n}\n\nvec3 rgbToHsv(vec3 c) {\n    float maxc = c.r;\n    int argmax = 0;\n    if (c.g > maxc) { maxc = c.g; argmax = 1; }\n    if (c.b > maxc) { maxc = c.b; argmax = 2; }\n    float minc = min(c.r, min(c.g, c.b));\n    float deltac = maxc - minc;\n    float s = deltac / (maxc + EPS);\n    float dc = deltac == 0.0 ? 1.0 : deltac;\n    vec3 comp = vec3(maxc) - c;\n    float h;\n    if (argmax == 0) h = comp.b - comp.g;\n    else if (argmax == 1) h = comp.r - comp.b + 2.0 * dc;\n    else h = comp.g - comp.r + 4.0 * dc;\n    h = fract(h / dc / 6.0);\n    return vec3(h, s, maxc);\n}\n\nvec3 hsvToRgb(vec3 hsv) {\n    float h6 = fract(hsv.x) * 6.0;\n    float hi = floor(h6);\n    float f = h6 - hi;\n    float v = hsv.z;\n    float s = hsv.y;\n    float p = v * (1.0 - s);\n    float q = v * (1.0 - f * s);\n    float t = v * (1.0 - (1.0 - f) * s);\n    int i = int(hi) % 6;\n    if (i == 0) return vec3(v, t, p);\n    if (i == 1) return vec3(q, v, p);\n    if (i == 2) return vec3(p, v, t);\n    if (i == 3) return vec3(p, q, v);\n    if (i == 4) return vec3(t, p, v);\n    return vec3(v, p, q);\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 src = clamp(tex.rgb, 0.0, 1.0);\n    vec3 hsv = rgbToHsv(src);\n    float h0 = hsv.x;\n    float s = hsv.y;\n    float hx = h0 * 6.0 + 1.0;\n    hx = (hx > 6.0 ? hx - 6.0 : hx) / 6.0;\n    float lumIn = dot(tex.rgb, LUMA);\n\n    vec3 outc = src;\n    if (u_bool0) {\n        float hueShift = sampleLut(u_curve8, hx);\n        float h1 = fract(h0 + (hueShift - 1.0) / 2.0);\n        outc = hsvToRgb(vec3(h1, s, hsv.z));\n    }\n\n    float rSup = sampleLut(u_curve5, hx);\n    float mn = min(outc.g, outc.b);\n    if (outc.r > mn) outc.r = mn + rSup * (outc.r - mn);\n    float gSup = sampleLut(u_curve6, hx);\n    mn = min(outc.r, outc.b);\n    if (outc.g > mn) outc.g = mn + gSup * (outc.g - mn);\n    float bSup = sampleLut(u_curve7, hx);\n    mn = min(outc.r, outc.g);\n    if (outc.b > mn) outc.b = mn + bSup * (outc.b - mn);\n\n    float lumGain = sampleLut(u_curve1, hx);\n    vec3 gains = vec3(sampleLut(u_curve2, hx),\n                      sampleLut(u_curve3, hx),\n                      sampleLut(u_curve4, hx)) * lumGain;\n    float thr = clamp(u_float0, 0.0, 1.0);\n    if (thr > 0.0) {\n        vec3 factor = s > thr\n            ? (thr + (s - thr) * gains) / max(s, 1e-6)\n            : vec3(1.0);\n        outc *= factor;\n    } else {\n        outc *= gains;\n    }\n\n    float satGain = sampleLut(u_curve0, hx);\n    float lSat = dot(outc, LUMA);\n    outc = mix(vec3(lSat), outc, satGain);\n\n    float mixv = clamp(u_float1, 0.0, 1.0);\n    if (mixv > 0.0) {\n        float lumOut = max(dot(outc, LUMA), 1e-6);\n        outc *= 1.0 + mixv * (lumIn / lumOut - 1.0);\n    }\n\n    fragColor = vec4(clamp(outc, 0.0, 1.0), tex.a);\n}\n";
 const HUE_CHANNELS = [
   "sat",
   "lum",
@@ -128338,10 +127963,10 @@ class FxPreviewRenderer {
     this.ready = false;
   }
 }
-const despillFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform bool u_bool0;\r\nuniform bool u_bool1;\r\nuniform bool u_bool2;\r\nuniform bool u_bool3;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    float r = tex.r;\r\n    float g = tex.g;\r\n    float b = tex.b;\r\n    float mixv = clamp(u_float0, 0.0, 1.0);\r\n    float expandv = clamp(u_float1, 0.0, 1.0);\r\n    float spill = u_bool0\r\n        ? max(0.0, b - (r * mixv + g * (1.0 - mixv)) * (1.0 - expandv))\r\n        : max(0.0, g - (r * mixv + b * (1.0 - mixv)) * (1.0 - expandv));\r\n    vec3 outc = vec3(\r\n        r + spill * u_float2 + u_float5 * spill,\r\n        g + spill * u_float3 + u_float5 * spill,\r\n        b + spill * u_float4 + u_float5 * spill);\r\n    if (u_bool1) outc = max(outc, 0.0);\r\n    if (u_bool2) outc = min(outc, 1.0);\r\n    if (u_bool3) outc = vec3(clamp(spill, 0.0, 1.0));\r\n    fragColor = vec4(outc, tex.a);\r\n}\r\n";
-const colorSuppressFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform bool u_bool0;\r\nuniform bool u_bool1;\r\nuniform int u_int0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nfloat lumaOf(vec3 c, int mode) {\r\n    if (mode == 3) return (c.r + c.g + c.b) / 3.0;\r\n    if (mode == 4) return max(c.r, max(c.g, c.b));\r\n    if (mode == 1) return dot(c, vec3(0.2627, 0.6780, 0.0593));\r\n    if (mode == 2) return dot(c, vec3(0.2989, 0.5866, 0.1145));\r\n    return dot(c, vec3(0.2126, 0.7152, 0.0722));\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    float r = tex.r;\r\n    float g = tex.g;\r\n    float b = tex.b;\r\n    float modified = 0.0;\r\n    float luma1 = lumaOf(tex.rgb, u_int0);\r\n\r\n    if (u_float5 != 0.0 && b < g && b < r) {\r\n        float d = min((g - b) * u_float5, (r - b) * u_float5);\r\n        g -= d;\r\n        r -= d;\r\n        modified += abs(d);\r\n    }\r\n    if (u_float4 != 0.0 && g < b && g < r) {\r\n        float d = min((b - g) * u_float4, (r - g) * u_float4);\r\n        b -= d;\r\n        r -= d;\r\n        modified += abs(d);\r\n    }\r\n    if (u_float3 != 0.0 && r < g && r < b) {\r\n        float d = min((g - r) * u_float3, (b - r) * u_float3);\r\n        g -= d;\r\n        b -= d;\r\n        modified += abs(d);\r\n    }\r\n    if (u_float0 != 0.0 && r > g && r > b) {\r\n        float d = (r - max(g, b)) * u_float0;\r\n        r -= d;\r\n        modified += abs(d);\r\n    }\r\n    if (u_float1 != 0.0 && g > b && g > r) {\r\n        float d = (g - max(b, r)) * u_float1;\r\n        g -= d;\r\n        modified += abs(d);\r\n    }\r\n    if (u_float2 != 0.0 && b > g && b > r) {\r\n        float d = (b - max(g, r)) * u_float2;\r\n        b -= d;\r\n        modified += abs(d);\r\n    }\r\n\r\n    if (u_bool1) {\r\n        fragColor = vec4(vec3(clamp(modified, 0.0, 1.0)), tex.a);\r\n        return;\r\n    }\r\n    vec3 outc = vec3(r, g, b);\r\n    if (u_bool0) outc += luma1 - lumaOf(outc, u_int0);\r\n    fragColor = vec4(clamp(outc, 0.0, 1.0), tex.a);\r\n}\r\n";
-const keyerFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform float u_float6;\r\nuniform float u_float7;\r\nuniform float u_float8;\r\nuniform float u_float9;\r\nuniform float u_float10;\r\nuniform float u_float11;\r\nuniform int u_int0;\r\nuniform int u_int1;\r\nuniform int u_int2;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nfloat lumaOf(vec3 c, int mode) {\r\n    if (mode == 3) return (c.r + c.g + c.b) / 3.0;\r\n    if (mode == 4) return max(c.r, max(c.g, c.b));\r\n    if (mode == 1) return dot(c, vec3(0.2627, 0.6780, 0.0593));\r\n    if (mode == 2) return dot(c, vec3(0.2989, 0.5866, 0.1145));\r\n    return dot(c, vec3(0.2126, 0.7152, 0.0722));\r\n}\r\n\r\nfloat keyBg(float kfg, float softL, float tolL, float ctr, float tolU,\r\n            float softU) {\r\n    float aPt = ctr + tolL + softL;\r\n    float bPt = ctr + tolL;\r\n    float cPt = ctr + tolU;\r\n    float dPt = ctr + tolU + softU;\r\n    float k = kfg < aPt ? 0.0 : 1.0;\r\n    if (softL < 0.0 && kfg >= aPt && kfg < bPt) k = (kfg - aPt) / -softL;\r\n    if (kfg >= bPt && kfg <= cPt) k = 1.0;\r\n    if (softU > 0.0 && kfg > cPt && kfg < dPt) k = (dPt - kfg) / softU;\r\n    if (kfg >= dPt) k = 0.0;\r\n    if (bPt <= 0.0 && kfg <= 0.0) k = 1.0;\r\n    if (cPt >= 1.0 && kfg >= 1.0) k = 1.0;\r\n    return clamp(k, 0.0, 1.0);\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 fg = tex.rgb;\r\n    vec3 kc = vec3(u_float0, u_float1, u_float2);\r\n    float kcSum = u_float3;\r\n    float kcNorm2 = u_float4;\r\n    float softL = u_float5;\r\n    float tolL = u_float6;\r\n    float ctr = u_float7;\r\n    float tolU = u_float8;\r\n    float softU = u_float9;\r\n    float desp = u_float10;\r\n    float closing = u_float11;\r\n\r\n    float scalar = dot(fg, kc);\r\n    float kfg;\r\n    float dist = 0.0;\r\n    if (u_int0 == 0) {\r\n        kfg = lumaOf(fg, u_int1);\r\n    } else if (u_int0 == 1) {\r\n        kfg = kcSum == 0.0 ? lumaOf(fg, u_int1) : scalar / kcSum;\r\n    } else {\r\n        float norm2 = dot(fg, fg);\r\n        float proj2 = kcNorm2 > 0.0 ? scalar * scalar / kcNorm2 : 0.0;\r\n        dist = sqrt(max(0.0, norm2 - proj2));\r\n        kfg = (kcSum == 0.0 ? lumaOf(fg, u_int1) : scalar / kcSum) - dist;\r\n    }\r\n\r\n    float kbg = u_int0 == 3\r\n        ? 1.0\r\n        : keyBg(kfg, softL, tolL, ctr, tolU, softU);\r\n\r\n    vec3 outc = fg;\r\n    if (desp > 0.0 && (u_int0 == 2 || u_int0 == 3) && kcNorm2 > 0.0) {\r\n        float kcNorm = sqrt(kcNorm2);\r\n        float along = scalar / kcNorm;\r\n        float cone = dist * closing;\r\n        float maxdesp = kbg * min(desp, 1.0)\r\n            + (1.0 - kbg) * max(0.0, desp - 1.0);\r\n        float shift = maxdesp * max(kcNorm, along - cone);\r\n        shift = min(shift, along - cone);\r\n        if (!(along > cone && shift > 0.0)) shift = 0.0;\r\n        outc -= shift * kc / kcNorm;\r\n    }\r\n\r\n    float alpha = clamp(1.0 - kbg, 0.0, 1.0);\r\n    vec3 pre = clamp(outc * alpha, 0.0, 1.0);\r\n\r\n    if (u_int2 == 0) fragColor = vec4(vec3(alpha), 1.0);\r\n    else if (u_int2 == 1) fragColor = vec4(pre, 1.0);\r\n    else fragColor = vec4(pre, alpha);\r\n}\r\n";
-const pikFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform float u_float6;\r\nuniform float u_float7;\r\nuniform float u_float8;\r\nuniform float u_float9;\r\nuniform float u_float10;\r\nuniform float u_float11;\r\nuniform float u_float12;\r\nuniform float u_float13;\r\nuniform float u_float14;\r\nuniform float u_float15;\r\nuniform int u_int0;\r\nuniform int u_int1;\r\nuniform int u_int2;\r\nuniform bool u_bool0;\r\nuniform bool u_bool1;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 fg = tex.rgb;\r\n    vec3 ab = vec3(u_float0, u_float1, u_float2);\r\n    vec3 db = vec3(u_float3, u_float4, u_float5);\r\n    vec3 c = vec3(u_float6, u_float7, u_float8);\r\n    float rw = u_float9;\r\n    float gbw = u_float10;\r\n    float clipMin = u_float11;\r\n    float clipMax = u_float12;\r\n    vec3 repCol = vec3(u_float13, u_float14, u_float15);\r\n\r\n    vec3 pfg = fg / ab;\r\n    float pfgKey;\r\n    float cKey;\r\n    float cPrim;\r\n    if (u_int0 == 0) {\r\n        pfgKey = pfg.g - pfg.r * rw - pfg.b * gbw;\r\n        cKey = c.g - c.r * rw - c.b * gbw;\r\n        cPrim = c.g;\r\n    } else {\r\n        pfgKey = pfg.b - pfg.r * rw - pfg.g * gbw;\r\n        cKey = c.b - c.r * rw - c.g * gbw;\r\n        cPrim = c.b;\r\n    }\r\n\r\n    float alpha = 1.0 - pfgKey / (cKey <= 0.0 ? 1.0 : cKey);\r\n    if (cPrim <= 0.0 || pfgKey <= 0.0 || cKey <= 0.0) alpha = 1.0;\r\n\r\n    vec3 outc;\r\n    if (u_bool0) {\r\n        outc = alpha >= 1.0 ? fg : max(fg + c * db * (alpha - 1.0), 0.0);\r\n    } else {\r\n        outc = fg;\r\n    }\r\n\r\n    if (u_bool1) alpha = clamp(alpha, 0.0, 1.0);\r\n\r\n    float clipped = clamp((alpha - clipMin) / (clipMax - clipMin), 0.0, 1.0);\r\n    if (alpha <= clipMin) clipped = 0.0;\r\n    if (alpha >= clipMax) clipped = 1.0;\r\n    float safe = alpha > 0.0 ? alpha : 1.0;\r\n    if (clipped < alpha) outc *= clipped / safe;\r\n    if (u_int1 != 0 && clipped > alpha) {\r\n        float diff = clipped - alpha;\r\n        if (u_int1 == 1) outc += fg * diff;\r\n        else if (u_int1 == 2) outc += repCol * diff;\r\n        else outc += repCol * diff\r\n            * dot(fg, vec3(0.2126, 0.7152, 0.0722));\r\n    }\r\n    alpha = clipped;\r\n\r\n    if (!u_bool0) outc *= alpha;\r\n\r\n    if (u_int2 == 0) fragColor = vec4(vec3(alpha), 1.0);\r\n    else if (u_int2 == 1) fragColor = vec4(clamp(outc, 0.0, 1.0), 1.0);\r\n    else fragColor = vec4(clamp(outc, 0.0, 1.0), alpha);\r\n}\r\n";
+const despillFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform bool u_bool0;\nuniform bool u_bool1;\nuniform bool u_bool2;\nuniform bool u_bool3;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    float r = tex.r;\n    float g = tex.g;\n    float b = tex.b;\n    float mixv = clamp(u_float0, 0.0, 1.0);\n    float expandv = clamp(u_float1, 0.0, 1.0);\n    float spill = u_bool0\n        ? max(0.0, b - (r * mixv + g * (1.0 - mixv)) * (1.0 - expandv))\n        : max(0.0, g - (r * mixv + b * (1.0 - mixv)) * (1.0 - expandv));\n    vec3 outc = vec3(\n        r + spill * u_float2 + u_float5 * spill,\n        g + spill * u_float3 + u_float5 * spill,\n        b + spill * u_float4 + u_float5 * spill);\n    if (u_bool1) outc = max(outc, 0.0);\n    if (u_bool2) outc = min(outc, 1.0);\n    if (u_bool3) outc = vec3(clamp(spill, 0.0, 1.0));\n    fragColor = vec4(outc, tex.a);\n}\n";
+const colorSuppressFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform bool u_bool0;\nuniform bool u_bool1;\nuniform int u_int0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nfloat lumaOf(vec3 c, int mode) {\n    if (mode == 3) return (c.r + c.g + c.b) / 3.0;\n    if (mode == 4) return max(c.r, max(c.g, c.b));\n    if (mode == 1) return dot(c, vec3(0.2627, 0.6780, 0.0593));\n    if (mode == 2) return dot(c, vec3(0.2989, 0.5866, 0.1145));\n    return dot(c, vec3(0.2126, 0.7152, 0.0722));\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    float r = tex.r;\n    float g = tex.g;\n    float b = tex.b;\n    float modified = 0.0;\n    float luma1 = lumaOf(tex.rgb, u_int0);\n\n    if (u_float5 != 0.0 && b < g && b < r) {\n        float d = min((g - b) * u_float5, (r - b) * u_float5);\n        g -= d;\n        r -= d;\n        modified += abs(d);\n    }\n    if (u_float4 != 0.0 && g < b && g < r) {\n        float d = min((b - g) * u_float4, (r - g) * u_float4);\n        b -= d;\n        r -= d;\n        modified += abs(d);\n    }\n    if (u_float3 != 0.0 && r < g && r < b) {\n        float d = min((g - r) * u_float3, (b - r) * u_float3);\n        g -= d;\n        b -= d;\n        modified += abs(d);\n    }\n    if (u_float0 != 0.0 && r > g && r > b) {\n        float d = (r - max(g, b)) * u_float0;\n        r -= d;\n        modified += abs(d);\n    }\n    if (u_float1 != 0.0 && g > b && g > r) {\n        float d = (g - max(b, r)) * u_float1;\n        g -= d;\n        modified += abs(d);\n    }\n    if (u_float2 != 0.0 && b > g && b > r) {\n        float d = (b - max(g, r)) * u_float2;\n        b -= d;\n        modified += abs(d);\n    }\n\n    if (u_bool1) {\n        fragColor = vec4(vec3(clamp(modified, 0.0, 1.0)), tex.a);\n        return;\n    }\n    vec3 outc = vec3(r, g, b);\n    if (u_bool0) outc += luma1 - lumaOf(outc, u_int0);\n    fragColor = vec4(clamp(outc, 0.0, 1.0), tex.a);\n}\n";
+const keyerFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform float u_float6;\nuniform float u_float7;\nuniform float u_float8;\nuniform float u_float9;\nuniform float u_float10;\nuniform float u_float11;\nuniform int u_int0;\nuniform int u_int1;\nuniform int u_int2;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nfloat lumaOf(vec3 c, int mode) {\n    if (mode == 3) return (c.r + c.g + c.b) / 3.0;\n    if (mode == 4) return max(c.r, max(c.g, c.b));\n    if (mode == 1) return dot(c, vec3(0.2627, 0.6780, 0.0593));\n    if (mode == 2) return dot(c, vec3(0.2989, 0.5866, 0.1145));\n    return dot(c, vec3(0.2126, 0.7152, 0.0722));\n}\n\nfloat keyBg(float kfg, float softL, float tolL, float ctr, float tolU,\n            float softU) {\n    float aPt = ctr + tolL + softL;\n    float bPt = ctr + tolL;\n    float cPt = ctr + tolU;\n    float dPt = ctr + tolU + softU;\n    float k = kfg < aPt ? 0.0 : 1.0;\n    if (softL < 0.0 && kfg >= aPt && kfg < bPt) k = (kfg - aPt) / -softL;\n    if (kfg >= bPt && kfg <= cPt) k = 1.0;\n    if (softU > 0.0 && kfg > cPt && kfg < dPt) k = (dPt - kfg) / softU;\n    if (kfg >= dPt) k = 0.0;\n    if (bPt <= 0.0 && kfg <= 0.0) k = 1.0;\n    if (cPt >= 1.0 && kfg >= 1.0) k = 1.0;\n    return clamp(k, 0.0, 1.0);\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 fg = tex.rgb;\n    vec3 kc = vec3(u_float0, u_float1, u_float2);\n    float kcSum = u_float3;\n    float kcNorm2 = u_float4;\n    float softL = u_float5;\n    float tolL = u_float6;\n    float ctr = u_float7;\n    float tolU = u_float8;\n    float softU = u_float9;\n    float desp = u_float10;\n    float closing = u_float11;\n\n    float scalar = dot(fg, kc);\n    float kfg;\n    float dist = 0.0;\n    if (u_int0 == 0) {\n        kfg = lumaOf(fg, u_int1);\n    } else if (u_int0 == 1) {\n        kfg = kcSum == 0.0 ? lumaOf(fg, u_int1) : scalar / kcSum;\n    } else {\n        float norm2 = dot(fg, fg);\n        float proj2 = kcNorm2 > 0.0 ? scalar * scalar / kcNorm2 : 0.0;\n        dist = sqrt(max(0.0, norm2 - proj2));\n        kfg = (kcSum == 0.0 ? lumaOf(fg, u_int1) : scalar / kcSum) - dist;\n    }\n\n    float kbg = u_int0 == 3\n        ? 1.0\n        : keyBg(kfg, softL, tolL, ctr, tolU, softU);\n\n    vec3 outc = fg;\n    if (desp > 0.0 && (u_int0 == 2 || u_int0 == 3) && kcNorm2 > 0.0) {\n        float kcNorm = sqrt(kcNorm2);\n        float along = scalar / kcNorm;\n        float cone = dist * closing;\n        float maxdesp = kbg * min(desp, 1.0)\n            + (1.0 - kbg) * max(0.0, desp - 1.0);\n        float shift = maxdesp * max(kcNorm, along - cone);\n        shift = min(shift, along - cone);\n        if (!(along > cone && shift > 0.0)) shift = 0.0;\n        outc -= shift * kc / kcNorm;\n    }\n\n    float alpha = clamp(1.0 - kbg, 0.0, 1.0);\n    vec3 pre = clamp(outc * alpha, 0.0, 1.0);\n\n    if (u_int2 == 0) fragColor = vec4(vec3(alpha), 1.0);\n    else if (u_int2 == 1) fragColor = vec4(pre, 1.0);\n    else fragColor = vec4(pre, alpha);\n}\n";
+const pikFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform float u_float6;\nuniform float u_float7;\nuniform float u_float8;\nuniform float u_float9;\nuniform float u_float10;\nuniform float u_float11;\nuniform float u_float12;\nuniform float u_float13;\nuniform float u_float14;\nuniform float u_float15;\nuniform int u_int0;\nuniform int u_int1;\nuniform int u_int2;\nuniform bool u_bool0;\nuniform bool u_bool1;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 fg = tex.rgb;\n    vec3 ab = vec3(u_float0, u_float1, u_float2);\n    vec3 db = vec3(u_float3, u_float4, u_float5);\n    vec3 c = vec3(u_float6, u_float7, u_float8);\n    float rw = u_float9;\n    float gbw = u_float10;\n    float clipMin = u_float11;\n    float clipMax = u_float12;\n    vec3 repCol = vec3(u_float13, u_float14, u_float15);\n\n    vec3 pfg = fg / ab;\n    float pfgKey;\n    float cKey;\n    float cPrim;\n    if (u_int0 == 0) {\n        pfgKey = pfg.g - pfg.r * rw - pfg.b * gbw;\n        cKey = c.g - c.r * rw - c.b * gbw;\n        cPrim = c.g;\n    } else {\n        pfgKey = pfg.b - pfg.r * rw - pfg.g * gbw;\n        cKey = c.b - c.r * rw - c.g * gbw;\n        cPrim = c.b;\n    }\n\n    float alpha = 1.0 - pfgKey / (cKey <= 0.0 ? 1.0 : cKey);\n    if (cPrim <= 0.0 || pfgKey <= 0.0 || cKey <= 0.0) alpha = 1.0;\n\n    vec3 outc;\n    if (u_bool0) {\n        outc = alpha >= 1.0 ? fg : max(fg + c * db * (alpha - 1.0), 0.0);\n    } else {\n        outc = fg;\n    }\n\n    if (u_bool1) alpha = clamp(alpha, 0.0, 1.0);\n\n    float clipped = clamp((alpha - clipMin) / (clipMax - clipMin), 0.0, 1.0);\n    if (alpha <= clipMin) clipped = 0.0;\n    if (alpha >= clipMax) clipped = 1.0;\n    float safe = alpha > 0.0 ? alpha : 1.0;\n    if (clipped < alpha) outc *= clipped / safe;\n    if (u_int1 != 0 && clipped > alpha) {\n        float diff = clipped - alpha;\n        if (u_int1 == 1) outc += fg * diff;\n        else if (u_int1 == 2) outc += repCol * diff;\n        else outc += repCol * diff\n            * dot(fg, vec3(0.2126, 0.7152, 0.0722));\n    }\n    alpha = clipped;\n\n    if (!u_bool0) outc *= alpha;\n\n    if (u_int2 == 0) fragColor = vec4(vec3(alpha), 1.0);\n    else if (u_int2 == 1) fragColor = vec4(clamp(outc, 0.0, 1.0), 1.0);\n    else fragColor = vec4(clamp(outc, 0.0, 1.0), alpha);\n}\n";
 const KEYING_LUMA_WEIGHTS = {
   rec709: [0.2126, 0.7152, 0.0722],
   rec2020: [0.2627, 0.678, 0.0593],
@@ -128540,7 +128165,7 @@ class VideoPikRenderer extends FxPreviewRenderer {
     });
   }
 }
-const videoTransformFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform vec2 u_resolution;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvoid main() {\r\n    float w = u_resolution.x;\r\n    float h = u_resolution.y;\r\n    float px = v_texCoord.x * (w - 1.0);\r\n    float py = (1.0 - v_texCoord.y) * (h - 1.0);\r\n    float sx = u_float0 * px + u_float1 * py + u_float2;\r\n    float sy = u_float3 * px + u_float4 * py + u_float5;\r\n    if (sx < 0.0 || sy < 0.0 || sx > w - 1.0 || sy > h - 1.0) {\r\n        fragColor = vec4(0.0, 0.0, 0.0, 1.0);\r\n        return;\r\n    }\r\n    vec2 uv = vec2((sx + 0.5) / w, 1.0 - (sy + 0.5) / h);\r\n    fragColor = vec4(texture(u_image0, uv).rgb, 1.0);\r\n}\r\n";
+const videoTransformFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform vec2 u_resolution;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvoid main() {\n    float w = u_resolution.x;\n    float h = u_resolution.y;\n    float px = v_texCoord.x * (w - 1.0);\n    float py = (1.0 - v_texCoord.y) * (h - 1.0);\n    float sx = u_float0 * px + u_float1 * py + u_float2;\n    float sy = u_float3 * px + u_float4 * py + u_float5;\n    if (sx < 0.0 || sy < 0.0 || sx > w - 1.0 || sy > h - 1.0) {\n        fragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n    }\n    vec2 uv = vec2((sx + 0.5) / w, 1.0 - (sy + 0.5) / h);\n    fragColor = vec4(texture(u_image0, uv).rgb, 1.0);\n}\n";
 function matMul(a2, b) {
   const out = new Array(9).fill(0);
   for (let r2 = 0; r2 < 3; r2++) {
@@ -128676,7 +128301,7 @@ class VideoTransformRenderer {
     this.ready = false;
   }
 }
-const selectiveColorFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform float u_float6;\r\nuniform float u_float7;\r\nuniform float u_float8;\r\nuniform bool u_bool0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nfloat compAdjust(float scale, float value, float adjust) {\r\n    float lo = -value;\r\n    float hi = 1.0 - value;\r\n    float res = -adjust;\r\n    if (u_bool0) res *= hi;\r\n    return floor(clamp(res, lo, hi) * scale + 0.5);\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    float r = floor(tex.r * 255.0 + 0.5);\r\n    float g = floor(tex.g * 255.0 + 0.5);\r\n    float b = floor(tex.b * 255.0 + 0.5);\r\n    float minC = min(r, min(g, b));\r\n    float maxC = max(r, max(g, b));\r\n    float mid = r + g + b - minC - maxC;\r\n    float rnorm = r / 255.0;\r\n    float adjR = 0.0;\r\n    float s;\r\n\r\n    if (u_float0 != 0.0 && r == maxC) {\r\n        s = maxC - mid;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float0);\r\n    }\r\n    if (u_float1 != 0.0 && b == minC) {\r\n        s = mid - minC;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float1);\r\n    }\r\n    if (u_float2 != 0.0 && g == maxC) {\r\n        s = maxC - mid;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float2);\r\n    }\r\n    if (u_float3 != 0.0 && r == minC) {\r\n        s = mid - minC;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float3);\r\n    }\r\n    if (u_float4 != 0.0 && b == maxC) {\r\n        s = maxC - mid;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float4);\r\n    }\r\n    if (u_float5 != 0.0 && g == minC) {\r\n        s = mid - minC;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float5);\r\n    }\r\n    if (u_float6 != 0.0 && r > 128.0 && g > 128.0 && b > 128.0) {\r\n        s = minC * 2.0 - 255.0;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float6);\r\n    }\r\n    if (u_float7 != 0.0 && (r + g + b) > 0.0\r\n        && !(r == 255.0 && g == 255.0 && b == 255.0)) {\r\n        s = floor((510.0 - (abs(maxC * 2.0 - 255.0)\r\n                            + abs(minC * 2.0 - 255.0)) + 1.0) / 2.0);\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float7);\r\n    }\r\n    if (u_float8 != 0.0 && r < 128.0 && g < 128.0 && b < 128.0) {\r\n        s = 255.0 - maxC * 2.0;\r\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float8);\r\n    }\r\n\r\n    fragColor = vec4(clamp(r + adjR, 0.0, 255.0) / 255.0, tex.g, tex.b, tex.a);\r\n}\r\n";
+const selectiveColorFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform float u_float6;\nuniform float u_float7;\nuniform float u_float8;\nuniform bool u_bool0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nfloat compAdjust(float scale, float value, float adjust) {\n    float lo = -value;\n    float hi = 1.0 - value;\n    float res = -adjust;\n    if (u_bool0) res *= hi;\n    return floor(clamp(res, lo, hi) * scale + 0.5);\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    float r = floor(tex.r * 255.0 + 0.5);\n    float g = floor(tex.g * 255.0 + 0.5);\n    float b = floor(tex.b * 255.0 + 0.5);\n    float minC = min(r, min(g, b));\n    float maxC = max(r, max(g, b));\n    float mid = r + g + b - minC - maxC;\n    float rnorm = r / 255.0;\n    float adjR = 0.0;\n    float s;\n\n    if (u_float0 != 0.0 && r == maxC) {\n        s = maxC - mid;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float0);\n    }\n    if (u_float1 != 0.0 && b == minC) {\n        s = mid - minC;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float1);\n    }\n    if (u_float2 != 0.0 && g == maxC) {\n        s = maxC - mid;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float2);\n    }\n    if (u_float3 != 0.0 && r == minC) {\n        s = mid - minC;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float3);\n    }\n    if (u_float4 != 0.0 && b == maxC) {\n        s = maxC - mid;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float4);\n    }\n    if (u_float5 != 0.0 && g == minC) {\n        s = mid - minC;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float5);\n    }\n    if (u_float6 != 0.0 && r > 128.0 && g > 128.0 && b > 128.0) {\n        s = minC * 2.0 - 255.0;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float6);\n    }\n    if (u_float7 != 0.0 && (r + g + b) > 0.0\n        && !(r == 255.0 && g == 255.0 && b == 255.0)) {\n        s = floor((510.0 - (abs(maxC * 2.0 - 255.0)\n                            + abs(minC * 2.0 - 255.0)) + 1.0) / 2.0);\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float7);\n    }\n    if (u_float8 != 0.0 && r < 128.0 && g < 128.0 && b < 128.0) {\n        s = 255.0 - maxC * 2.0;\n        if (s > 0.0) adjR += compAdjust(s, rnorm, u_float8);\n    }\n\n    fragColor = vec4(clamp(r + adjR, 0.0, 255.0) / 255.0, tex.g, tex.b, tex.a);\n}\n";
 const SELECTIVE_ZONE_IDS = [
   "reds",
   "yellows",
@@ -129313,7 +128938,7 @@ class ParticlesPreviewRenderer {
     this.alphaCache.clear();
   }
 }
-const chromaShiftFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform vec2 u_resolution;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform bool u_bool0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvec2 shiftCoord(vec2 offLuma) {\r\n    vec2 px = v_texCoord * u_resolution;\r\n    vec2 s = vec2(px.x - offLuma.x, px.y + offLuma.y);\r\n    if (u_bool0) {\r\n        s = mod(mod(s, u_resolution) + u_resolution, u_resolution);\r\n    } else {\r\n        s = clamp(s, vec2(0.5), u_resolution - 0.5);\r\n    }\r\n    return s / u_resolution;\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 self = floor(tex.rgb * 255.0 + 0.5);\r\n    vec2 rUv = shiftCoord(vec2(u_float0, u_float1) * 2.0);\r\n    vec2 bUv = shiftCoord(vec2(u_float2, u_float3) * 2.0);\r\n    vec3 rs = floor(texture(u_image0, rUv).rgb * 255.0 + 0.5);\r\n    vec3 bs = floor(texture(u_image0, bUv).rgb * 255.0 + 0.5);\r\n    float y = dot(self, vec3(0.299, 0.587, 0.114));\r\n    float cb = dot(bs, vec3(-0.168736, -0.331264, 0.5)) + 128.0;\r\n    float cr = dot(rs, vec3(0.5, -0.418688, -0.081312)) + 128.0;\r\n    vec3 outc = vec3(\r\n        y + 1.402 * (cr - 128.0),\r\n        y - 0.344136 * (cb - 128.0) - 0.714136 * (cr - 128.0),\r\n        y + 1.772 * (cb - 128.0));\r\n    fragColor = vec4(clamp(floor(outc + 0.5), 0.0, 255.0) / 255.0, tex.a);\r\n}\r\n";
+const chromaShiftFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform vec2 u_resolution;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform bool u_bool0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvec2 shiftCoord(vec2 offLuma) {\n    vec2 px = v_texCoord * u_resolution;\n    vec2 s = vec2(px.x - offLuma.x, px.y + offLuma.y);\n    if (u_bool0) {\n        s = mod(mod(s, u_resolution) + u_resolution, u_resolution);\n    } else {\n        s = clamp(s, vec2(0.5), u_resolution - 0.5);\n    }\n    return s / u_resolution;\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 self = floor(tex.rgb * 255.0 + 0.5);\n    vec2 rUv = shiftCoord(vec2(u_float0, u_float1) * 2.0);\n    vec2 bUv = shiftCoord(vec2(u_float2, u_float3) * 2.0);\n    vec3 rs = floor(texture(u_image0, rUv).rgb * 255.0 + 0.5);\n    vec3 bs = floor(texture(u_image0, bUv).rgb * 255.0 + 0.5);\n    float y = dot(self, vec3(0.299, 0.587, 0.114));\n    float cb = dot(bs, vec3(-0.168736, -0.331264, 0.5)) + 128.0;\n    float cr = dot(rs, vec3(0.5, -0.418688, -0.081312)) + 128.0;\n    vec3 outc = vec3(\n        y + 1.402 * (cr - 128.0),\n        y - 0.344136 * (cb - 128.0) - 0.714136 * (cr - 128.0),\n        y + 1.772 * (cb - 128.0));\n    fragColor = vec4(clamp(floor(outc + 0.5), 0.0, 255.0) / 255.0, tex.a);\n}\n";
 class VideoChromaShiftRenderer extends FxPreviewRenderer {
   constructor() {
     super(chromaShiftFrag, {
@@ -129331,7 +128956,7 @@ class VideoChromaShiftRenderer extends FxPreviewRenderer {
     });
   }
 }
-const pseudocolorFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_curve0;\r\nuniform sampler2D u_curve1;\r\nuniform sampler2D u_curve2;\r\nuniform float u_float0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 rgb = floor(tex.rgb * 255.0 + 0.5);\r\n    float l = dot(rgb, vec3(0.299, 0.587, 0.114));\r\n    float yLim = floor(16.0 + l * 219.0 / 255.0 + 0.5);\r\n    float idx = clamp(floor((yLim - 16.0) * 255.0 / 219.0 + 0.5), 0.0, 255.0);\r\n    float u = (idx + 0.5) / 256.0;\r\n    vec3 pal = vec3(\r\n        texture(u_curve0, vec2(u, 0.5)).r,\r\n        texture(u_curve1, vec2(u, 0.5)).r,\r\n        texture(u_curve2, vec2(u, 0.5)).r) * 255.0;\r\n    vec3 outc = clamp(floor(mix(rgb, pal, u_float0) + 0.5), 0.0, 255.0);\r\n    fragColor = vec4(outc / 255.0, tex.a);\r\n}\r\n";
+const pseudocolorFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform sampler2D u_curve0;\nuniform sampler2D u_curve1;\nuniform sampler2D u_curve2;\nuniform float u_float0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 rgb = floor(tex.rgb * 255.0 + 0.5);\n    float l = dot(rgb, vec3(0.299, 0.587, 0.114));\n    float yLim = floor(16.0 + l * 219.0 / 255.0 + 0.5);\n    float idx = clamp(floor((yLim - 16.0) * 255.0 / 219.0 + 0.5), 0.0, 255.0);\n    float u = (idx + 0.5) / 256.0;\n    vec3 pal = vec3(\n        texture(u_curve0, vec2(u, 0.5)).r,\n        texture(u_curve1, vec2(u, 0.5)).r,\n        texture(u_curve2, vec2(u, 0.5)).r) * 255.0;\n    vec3 outc = clamp(floor(mix(rgb, pal, u_float0) + 0.5), 0.0, 255.0);\n    fragColor = vec4(outc / 255.0, tex.a);\n}\n";
 const magma = [[-11.77, -8.47, 13.19], [-10.61, -7.3, 14.35], [-9.01, -8.51, 16.37], [-7.85, -7.73, 19.55], [-7.85, -7.73, 19.55], [-7.85, -8.12, 21.57], [-5.09, -8.16, 24.75], [-5.09, -8.56, 26.77], [-3.92, -7.78, 29.95], [-2.33, -8.99, 31.96], [-1.16, -7.82, 33.13], [-1.16, -7.82, 33.13], [0.43, -9.03, 35.15], [0.43, -9.42, 37.16], [3.19, -9.46, 40.34], [3.19, -9.85, 42.36], [5.95, -9.89, 45.54], [5.95, -10.29, 47.56], [5.95, -10.29, 47.56], [8.71, -9.93, 48.73], [10.31, -11.14, 50.74], [11.47, -10.37, 53.92], [13.07, -11.57, 55.94], [14.23, -10.8, 59.12], [15.83, -11.61, 59.12], [15.83, -11.61, 59.12], [15.83, -12, 61.14], [18.59, -12.04, 64.32], [18.59, -12.04, 64.32], [21.35, -12.08, 67.5], [22.95, -13.29, 69.52], [24.11, -12.12, 70.68], [24.11, -12.12, 70.68], [25.71, -13.33, 72.7], [26.87, -12.16, 73.87], [28.47, -13.37, 75.88], [29.63, -12.2, 77.05], [31.23, -13.41, 79.07], [32.39, -12.24, 80.23], [35.15, -12.28, 83.41], [35.15, -12.28, 83.41], [36.75, -13.1, 83.41], [37.91, -11.93, 84.58], [39.51, -13.14, 86.59], [40.67, -11.97, 87.76], [42.27, -12.79, 87.76], [43.43, -12.01, 90.94], [43.43, -12.01, 90.94], [45.03, -12.83, 90.94], [46.19, -11.66, 92.1], [48.95, -11.31, 93.27], [48.95, -11.31, 93.27], [51.72, -10.96, 94.43], [51.72, -11.35, 96.45], [51.72, -11.35, 96.45], [54.48, -11, 97.61], [55.64, -9.84, 98.78], [55.64, -9.84, 98.78], [58.4, -9.48, 99.94], [58.4, -9.48, 99.94], [61.16, -9.13, 101.11], [61.16, -9.13, 101.11], [62.33, -7.97, 102.27], [63.92, -8.78, 102.27], [65.09, -7.62, 103.44], [67.85, -7.27, 104.6], [67.85, -7.27, 104.6], [70.61, -6.52, 103.75], [70.61, -6.52, 103.75], [70.61, -6.52, 103.75], [73.37, -6.17, 104.91], [74.53, -5.01, 106.08], [76.13, -5.82, 106.08], [77.29, -4.66, 107.24], [78.46, -3.1, 106.39], [78.46, -3.1, 106.39], [80.05, -3.91, 106.39], [81.22, -2.75, 107.55], [82.81, -3.56, 107.55], [83.98, -2, 106.7], [86.74, -1.65, 107.86], [86.74, -1.65, 107.86], [86.74, -1.65, 107.86], [89.5, -0.91, 107.01], [90.66, 0.25, 108.17], [92.26, -0.56, 108.17], [93.42, 1, 107.32], [95.02, 0.18, 107.32], [96.18, 1.35, 108.49], [96.18, 1.35, 108.49], [98.94, 2.09, 107.63], [98.94, 2.09, 107.63], [101.7, 2.84, 106.78], [101.7, 2.84, 106.78], [104.46, 3.19, 107.95], [105.63, 4.74, 107.09], [105.63, 4.74, 107.09], [107.22, 3.93, 107.09], [109.98, 4.67, 106.24], [109.98, 4.67, 106.24], [112.75, 5.42, 105.39], [113.91, 6.58, 106.55], [115.51, 6.16, 104.53], [115.51, 6.16, 104.53], [116.67, 7.32, 105.7], [118.27, 6.9, 103.68], [119.43, 8.07, 104.85], [122.19, 8.81, 103.99], [122.19, 8.81, 103.99], [124.95, 9.55, 103.14], [124.95, 9.55, 103.14], [126.55, 8.74, 103.14], [127.71, 10.3, 102.29], [130.47, 10.65, 103.45], [130.47, 11.04, 101.43], [133.23, 11.39, 102.6], [133.23, 11.78, 100.58], [133.23, 11.78, 100.58], [135.99, 12.13, 101.75], [137.16, 13.69, 100.89], [138.75, 13.27, 98.88], [139.92, 14.43, 100.04], [142.68, 15.18, 99.19], [144.27, 14.36, 99.19], [144.27, 14.36, 99.19], [145.44, 15.92, 98.33], [147.03, 15.5, 96.32], [148.2, 16.66, 97.48], [150.96, 17.41, 96.63], [150.96, 17.41, 96.63], [153.72, 18.15, 95.78], [154.88, 19.71, 94.92], [154.88, 19.71, 94.92], [156.48, 18.89, 94.92], [157.64, 20.45, 94.07], [158.81, 22, 93.22], [160.4, 21.19, 93.22], [161.57, 22.75, 92.36], [164.33, 23.49, 91.51], [164.33, 23.49, 91.51], [164.33, 23.49, 91.51], [167.09, 24.23, 90.66], [168.25, 25.79, 89.81], [169.42, 26.95, 90.97], [171.01, 26.53, 88.95], [172.18, 28.09, 88.1], [172.18, 28.09, 88.1], [173.34, 29.25, 89.26], [176.1, 30, 88.41], [176.1, 30.39, 86.39], [177.27, 31.95, 85.54], [180.03, 32.3, 86.71], [181.19, 33.85, 85.85], [181.19, 33.85, 85.85], [182.36, 35.41, 85], [182.36, 35.8, 82.98], [185.12, 36.15, 84.15], [186.28, 37.71, 83.29], [187.45, 39.26, 82.44], [188.61, 40.43, 83.61], [188.61, 40.43, 83.61], [189.78, 41.98, 82.75], [190.94, 43.54, 81.9], [190.94, 43.93, 79.88], [192.1, 45.1, 81.05], [194.86, 45.84, 80.19], [196.03, 47.4, 79.34], [196.03, 47.4, 79.34], [197.19, 48.95, 78.49], [198.36, 50.12, 79.65], [199.52, 51.67, 78.8], [199.09, 54.04, 77.95], [200.26, 55.6, 77.09], [201.42, 56.76, 78.26], [201.42, 56.76, 78.26], [202.58, 58.32, 77.41], [203.75, 59.88, 76.55], [204.91, 61.43, 75.7], [206.08, 62.6, 76.86], [205.65, 64.96, 76.01], [207.97, 67.69, 76.32], [207.97, 67.69, 76.32], [209.14, 68.85, 77.49], [210.3, 70.41, 76.64], [209.87, 72.78, 75.78], [211.04, 74.33, 74.93], [212.2, 75.5, 76.09], [211.77, 77.86, 75.24], [211.77, 77.86, 75.24], [212.93, 79.42, 74.39], [215.26, 81.75, 76.72], [214.83, 84.12, 75.86], [215.99, 85.28, 77.03], [215.56, 87.65, 76.18], [216.73, 89.21, 75.32], [216.73, 89.21, 75.32], [217.46, 92.35, 77.65], [218.62, 93.91, 76.8], [218.19, 95.88, 77.96], [219.36, 97.44, 77.11], [220.09, 100.97, 77.42], [219.66, 102.95, 78.59], [219.66, 102.95, 78.59], [220.82, 104.51, 77.73], [220.39, 106.48, 78.9], [221.12, 110.02, 79.21], [222.29, 111.18, 80.37], [221.86, 113.55, 79.52], [221.42, 115.53, 80.68], [221.42, 115.53, 80.68], [223.75, 117.86, 83.01], [223.32, 120.23, 82.16], [222.89, 122.2, 83.33], [223.62, 125.35, 85.65], [224.79, 126.9, 84.8], [224.36, 128.88, 85.97], [225.09, 132.02, 88.29], [225.09, 132.02, 88.29], [224.66, 134.39, 87.44], [225.82, 135.55, 88.61], [225.39, 137.53, 89.77], [226.12, 140.67, 92.1], [225.69, 142.65, 93.26], [225.26, 145.02, 92.41], [225.26, 145.02, 92.41], [225.99, 148.16, 94.74], [227.16, 149.33, 95.9], [226.72, 151.3, 97.07], [226.29, 153.28, 98.23], [227.03, 156.42, 100.56], [226.59, 158.4, 101.73], [226.59, 158.4, 101.73], [226.16, 160.38, 102.89], [226.89, 163.52, 105.22], [228.06, 164.68, 106.38], [227.63, 166.66, 107.55], [227.2, 168.25, 110.73], [227.93, 171.39, 113.06], [227.93, 171.39, 113.06], [227.5, 173.37, 114.22], [227.07, 175.34, 115.39], [228.23, 176.51, 116.55], [227.8, 178.48, 117.72], [228.53, 181.23, 122.06], [228.1, 183.21, 123.23], [228.1, 183.21, 123.23], [227.67, 185.19, 124.39], [227.24, 187.17, 125.55], [228.4, 187.94, 128.74], [229.13, 191.08, 131.07], [228.7, 193.06, 132.23], [228.27, 195.04, 133.39], [228.27, 195.04, 133.39], [227.84, 196.62, 136.58], [227.41, 198.6, 137.74], [228.57, 199.76, 138.9]];
 const inferno = [[-9.75, -11.65, 14.04], [-8.15, -12.85, 16.06], [-6.99, -12.08, 19.24], [-6.99, -12.47, 21.25], [-6.99, -12.47, 21.25], [-4.23, -12.51, 24.44], [-4.23, -12.9, 26.45], [-1.47, -12.94, 29.64], [-1.47, -13.34, 31.65], [1.29, -13.38, 34.83], [1.29, -13.38, 34.83], [1.29, -13.38, 34.83], [4.06, -13.42, 38.02], [4.06, -13.81, 40.03], [5.65, -15.01, 42.05], [6.82, -14.24, 45.23], [8.41, -15.44, 47.25], [9.58, -14.28, 48.41], [9.58, -14.28, 48.41], [11.17, -15.48, 50.43], [12.34, -14.71, 53.61], [13.93, -15.92, 55.63], [16.69, -15.57, 56.79], [16.69, -15.96, 58.81], [19.45, -16, 61.99], [19.45, -16, 61.99], [21.05, -16.81, 61.99], [21.05, -17.2, 64.01], [23.81, -16.85, 65.17], [23.81, -17.24, 67.19], [26.57, -16.89, 68.36], [28.17, -17.7, 68.36], [28.17, -17.7, 68.36], [29.33, -16.93, 71.54], [30.93, -17.74, 71.54], [33.69, -17.78, 74.72], [33.69, -17.78, 74.72], [36.45, -17.43, 75.88], [36.45, -17.43, 75.88], [39.21, -17.08, 77.05], [39.21, -17.08, 77.05], [40.8, -18.29, 79.07], [41.97, -17.12, 80.23], [43.56, -17.94, 80.23], [44.73, -16.77, 81.39], [47.49, -16.42, 82.56], [49.09, -17.23, 82.56], [49.09, -17.23, 82.56], [50.25, -16.07, 83.72], [51.85, -16.88, 83.72], [53.01, -15.72, 84.89], [54.61, -16.53, 84.89], [57.37, -16.18, 86.05], [57.37, -15.79, 84.03], [57.37, -15.79, 84.03], [60.13, -15.44, 85.2], [60.13, -15.44, 85.2], [62.89, -15.08, 86.36], [64.05, -13.92, 87.53], [65.65, -14.34, 85.51], [66.81, -13.18, 86.67], [66.81, -13.18, 86.67], [68.41, -13.99, 86.67], [71.17, -13.64, 87.84], [72.33, -12.08, 86.99], [73.93, -12.89, 86.99], [75.09, -11.73, 88.15], [76.69, -12.15, 86.13], [76.69, -12.15, 86.13], [77.85, -10.99, 87.3], [80.61, -10.24, 86.44], [80.61, -10.24, 86.44], [83.37, -9.89, 87.61], [83.37, -9.5, 85.59], [86.13, -9.15, 86.76], [86.13, -9.15, 86.76], [87.3, -7.59, 85.9], [88.9, -8.41, 85.9], [90.06, -6.85, 85.05], [91.66, -7.66, 85.05], [92.82, -6.11, 84.2], [95.58, -5.76, 85.36], [95.58, -5.76, 85.36], [95.58, -5.36, 83.35], [98.34, -5.01, 84.51], [99.51, -3.46, 83.66], [101.1, -4.27, 83.66], [102.27, -2.71, 82.8], [105.03, -2.36, 83.97], [105.03, -2.36, 83.97], [105.03, -1.97, 81.95], [107.79, -1.62, 83.12], [107.79, -1.23, 81.1], [108.95, -0.06, 82.26], [111.71, 0.68, 81.41], [111.71, 0.68, 81.41], [111.71, 0.68, 81.41], [114.47, 1.42, 80.56], [115.64, 2.98, 79.7], [117.23, 2.17, 79.7], [118.4, 3.72, 78.85], [121.16, 4.08, 80.02], [121.16, 4.47, 78], [121.16, 4.47, 78], [122.32, 6.02, 77.15], [125.08, 6.37, 78.31], [125.08, 6.77, 76.29], [127.84, 7.12, 77.46], [129.01, 8.67, 76.6], [130.6, 8.25, 74.59], [130.6, 8.25, 74.59], [131.77, 9.42, 75.75], [132.93, 10.97, 74.9], [134.53, 10.55, 72.88], [135.69, 11.72, 74.05], [138.45, 12.46, 73.19], [138.45, 12.85, 71.18], [138.45, 12.85, 71.18], [139.62, 14.02, 72.34], [142.38, 14.76, 71.49], [142.38, 15.15, 69.47], [145.14, 15.89, 68.62], [146.3, 17.06, 69.78], [146.3, 17.45, 67.76], [146.3, 17.45, 67.76], [149.06, 18.19, 66.91], [150.23, 19.75, 66.06], [151.39, 20.91, 67.22], [152.99, 20.49, 65.21], [154.15, 22.05, 64.35], [156.91, 22.79, 63.5], [156.91, 23.18, 61.48], [156.91, 23.18, 61.48], [158.08, 24.35, 62.65], [160.84, 25.09, 61.79], [162, 26.65, 60.94], [162, 27.04, 58.92], [163.17, 28.59, 58.07], [165.93, 29.34, 57.22], [165.93, 29.34, 57.22], [167.09, 30.89, 56.37], [167.09, 31.29, 54.35], [169.85, 31.64, 55.51], [171.01, 33.19, 54.66], [172.18, 34.75, 53.81], [173.34, 36.31, 52.95], [173.34, 36.31, 52.95], [173.34, 36.7, 50.94], [176.1, 37.44, 50.08], [177.27, 39, 49.23], [178.43, 40.55, 48.38], [179.6, 42.11, 47.53], [179.6, 42.5, 45.51], [179.6, 42.5, 45.51], [182.36, 43.24, 44.66], [183.52, 45.19, 41.79], [184.69, 46.75, 40.93], [185.85, 48.3, 40.08], [187.02, 49.86, 39.23], [188.18, 51.42, 38.37], [188.18, 51.42, 38.37], [188.18, 51.81, 36.36], [189.34, 53.36, 35.5], [190.51, 54.92, 34.65], [191.67, 56.48, 33.8], [192.84, 58.42, 30.93], [194, 59.98, 30.08], [194, 59.98, 30.08], [195.17, 61.54, 29.22], [196.33, 63.09, 28.37], [197.49, 64.65, 27.52], [198.66, 66.21, 26.66], [199.82, 68.15, 23.79], [200.99, 69.71, 22.94], [200.99, 69.71, 22.94], [202.15, 71.27, 22.09], [203.32, 72.82, 21.24], [204.48, 74.38, 20.38], [205.65, 76.33, 17.51], [205.21, 78.7, 16.66], [206.38, 80.25, 15.81], [206.38, 80.25, 15.81], [207.54, 81.81, 14.95], [208.71, 83.36, 14.1], [208.28, 86.12, 11.23], [209.44, 87.68, 10.38], [210.6, 89.24, 9.53], [210.17, 91.61, 8.67], [210.17, 91.61, 8.67], [211.34, 93.16, 7.82], [212.5, 94.72, 6.97], [212.07, 97.09, 6.11], [213.23, 99.04, 3.24], [214.4, 100.59, 2.39], [215.13, 104.12, 2.7], [215.13, 104.12, 2.7], [216.3, 105.68, 1.85], [215.86, 108.05, 1], [217.03, 109.61, 0.14], [216.6, 111.98, -0.71], [217.76, 113.53, -1.56], [217.33, 115.9, -2.41], [217.33, 115.9, -2.41], [219.66, 118.62, -2.1], [219.23, 120.6, -0.94], [218.79, 122.97, -1.79], [219.96, 124.52, -2.64], [219.53, 126.89, -3.5], [220.26, 130.43, -3.19], [220.26, 130.43, -3.19], [221.42, 131.59, -2.02], [220.99, 133.96, -2.87], [220.56, 136.33, -3.73], [220.13, 138.31, -2.56], [222.46, 141.03, -2.25], [222.03, 143, -1.09], [221.6, 145.37, -1.94], [221.6, 145.37, -1.94], [221.16, 147.35, -0.78], [221.9, 150.88, -0.46], [223.06, 152.05, 0.7], [222.63, 154.03, 1.86], [222.2, 156, 3.03], [222.93, 159.54, 3.34], [222.93, 159.54, 3.34], [222.5, 161.51, 4.51], [222.07, 163.49, 5.67], [222.8, 166.63, 8], [222.37, 168.61, 9.16], [221.94, 170.59, 10.33], [221.5, 172.17, 13.51], [221.5, 172.17, 13.51], [222.24, 175.32, 15.84], [221.81, 177.29, 17], [221.37, 179.27, 18.17], [220.94, 180.86, 21.35], [221.68, 184, 23.68], [221.24, 185.58, 26.86], [221.24, 185.58, 26.86], [220.81, 187.56, 28.02], [221.54, 190.31, 32.37], [221.11, 191.9, 35.55], [220.68, 193.87, 36.71], [220.25, 195.46, 39.9], [220.98, 198.21, 44.24], [220.98, 198.21, 44.24], [220.55, 199.79, 47.42], [220.12, 201.38, 50.61], [220.85, 204.13, 54.95], [220.42, 205.72, 58.13], [219.99, 207.3, 61.31], [219.56, 208.89, 64.5], [219.56, 208.89, 64.5], [220.29, 211.64, 68.84], [219.86, 213.22, 72.02], [219.43, 214.81, 75.21]];
 const plasma = [[26.14, -25.49, 123.99], [27.73, -26.3, 123.99], [29.33, -27.12, 123.99], [30.93, -27.93, 123.99], [30.93, -27.93, 123.99], [32.52, -29.14, 126], [35.28, -28.78, 127.17], [35.28, -28.78, 127.17], [36.88, -29.99, 129.18], [38.48, -30.8, 129.18], [40.07, -31.61, 129.18], [40.07, -31.61, 129.18], [41.67, -32.82, 131.2], [43.26, -33.63, 131.2], [44.86, -34.45, 131.2], [46.02, -33.28, 132.37], [47.62, -34.49, 134.38], [49.22, -35.3, 134.38], [49.22, -35.3, 134.38], [50.81, -36.11, 134.38], [52.41, -36.92, 134.38], [54, -37.74, 134.38], [55.17, -36.96, 137.57], [56.76, -37.78, 137.57], [58.36, -38.59, 137.57], [58.36, -38.59, 137.57], [59.52, -37.43, 138.73], [61.12, -38.24, 138.73], [62.72, -39.05, 138.73], [62.72, -39.05, 138.73], [65.48, -38.7, 139.89], [67.07, -39.51, 139.89], [67.07, -39.51, 139.89], [67.07, -39.51, 139.89], [69.83, -39.16, 141.06], [71.43, -39.98, 141.06], [71.43, -39.98, 141.06], [74.19, -39.62, 142.22], [75.79, -40.44, 142.22], [75.79, -40.05, 140.21], [75.79, -40.05, 140.21], [77.38, -40.86, 140.21], [80.14, -40.51, 141.37], [80.14, -40.51, 141.37], [82.9, -40.16, 142.53], [82.9, -39.76, 140.52], [85.66, -39.41, 141.68], [85.66, -39.41, 141.68], [85.66, -39.41, 141.68], [88.42, -38.67, 140.83], [88.42, -38.67, 140.83], [91.18, -38.32, 141.99], [91.18, -37.93, 139.98], [93.94, -37.57, 141.14], [93.94, -37.57, 141.14], [95.11, -36.02, 140.29], [96.7, -36.83, 140.29], [97.87, -35.67, 141.45], [99.03, -34.11, 140.6], [100.63, -34.92, 140.6], [101.79, -33.37, 139.75], [101.79, -33.37, 139.75], [104.55, -32.62, 138.89], [104.55, -32.62, 138.89], [105.72, -31.07, 138.04], [108.48, -30.72, 139.2], [108.48, -30.32, 137.19], [109.64, -28.77, 136.33], [109.64, -28.77, 136.33], [112.4, -28.42, 137.5], [113.57, -26.86, 136.65], [113.57, -26.47, 134.63], [114.73, -25.3, 135.79], [117.49, -24.56, 134.94], [118.66, -23.01, 134.09], [118.66, -23.01, 134.09], [118.66, -23.01, 134.09], [119.82, -21.45, 133.23], [122.58, -20.71, 132.38], [123.75, -19.15, 131.53], [124.91, -17.99, 132.69], [126.08, -16.43, 131.84], [126.08, -16.43, 131.84], [126.08, -16.04, 129.82], [128.84, -15.29, 128.97], [130, -13.74, 128.12], [131.16, -12.57, 129.28], [132.33, -11.02, 128.43], [133.49, -9.46, 127.58], [133.49, -9.46, 127.58], [134.66, -7.91, 126.72], [136.25, -8.33, 124.71], [137.42, -6.77, 123.85], [138.58, -5.21, 123], [139.75, -4.05, 124.16], [140.91, -2.49, 123.31], [140.91, -2.49, 123.31], [142.08, -0.94, 122.46], [143.24, 0.62, 121.61], [143.24, 1.01, 119.59], [144.4, 2.57, 118.74], [145.57, 4.12, 117.88], [148.33, 4.87, 117.03], [148.33, 4.87, 117.03], [149.49, 6.42, 116.18], [150.66, 7.59, 117.34], [151.82, 9.14, 116.49], [152.99, 10.7, 115.64], [152.99, 11.09, 113.62], [154.15, 12.65, 112.77], [154.15, 12.65, 112.77], [155.32, 14.2, 111.91], [156.48, 15.76, 111.06], [157.64, 17.31, 110.21], [158.81, 18.87, 109.35], [159.97, 20.43, 108.5], [159.97, 20.43, 108.5], [159.97, 20.43, 108.5], [161.14, 21.98, 107.65], [162.3, 23.54, 106.8], [163.47, 25.1, 105.94], [164.63, 26.65, 105.09], [165.8, 28.21, 104.24], [166.96, 29.76, 103.38], [166.96, 29.76, 103.38], [166.96, 30.16, 101.37], [168.12, 31.71, 100.51], [169.29, 33.27, 99.66], [170.45, 34.82, 98.81], [171.62, 35.99, 99.97], [172.78, 37.54, 99.12], [172.78, 37.94, 97.1], [172.78, 37.94, 97.1], [173.95, 39.49, 96.25], [175.11, 41.05, 95.4], [176.27, 42.6, 94.54], [177.44, 44.16, 93.69], [178.6, 45.72, 92.84], [178.6, 46.11, 90.82], [178.6, 46.11, 90.82], [179.77, 47.27, 91.99], [180.93, 48.83, 91.13], [182.1, 50.39, 90.28], [183.26, 51.94, 89.43], [183.26, 52.33, 87.41], [184.43, 53.89, 86.56], [184.43, 53.89, 86.56], [183.99, 56.26, 85.7], [185.16, 57.81, 84.85], [186.32, 58.98, 86.02], [186.32, 59.37, 84], [187.49, 60.93, 83.15], [188.65, 62.48, 82.29], [188.65, 62.48, 82.29], [189.82, 64.04, 81.44], [190.98, 65.6, 80.59], [190.98, 65.99, 78.57], [192.14, 67.54, 77.72], [193.31, 68.71, 78.88], [194.47, 70.26, 78.03], [194.47, 70.26, 78.03], [195.64, 71.82, 77.18], [194.04, 73.02, 75.16], [195.21, 74.58, 74.31], [196.37, 76.14, 73.45], [197.53, 77.69, 72.6], [198.7, 78.86, 73.76], [198.7, 78.86, 73.76], [198.7, 79.25, 71.75], [199.86, 80.81, 70.89], [201.03, 82.36, 70.04], [200.6, 84.73, 69.19], [201.76, 86.29, 68.34], [201.76, 86.68, 66.32], [201.76, 86.68, 66.32], [202.92, 87.84, 67.48], [204.09, 89.4, 66.63], [205.25, 90.96, 65.78], [204.82, 93.32, 64.92], [204.82, 93.72, 62.91], [205.99, 95.27, 62.05], [205.99, 95.27, 62.05], [207.15, 96.83, 61.2], [208.32, 98.38, 60.35], [209.48, 99.55, 61.51], [209.05, 101.92, 60.66], [209.05, 102.31, 58.64], [210.21, 103.87, 57.79], [210.21, 103.87, 57.79], [211.38, 105.42, 56.94], [210.95, 107.79, 56.08], [212.11, 109.35, 55.23], [213.27, 110.51, 56.4], [213.27, 110.9, 54.38], [212.84, 113.27, 53.53], [212.84, 113.27, 53.53], [214.01, 114.83, 52.67], [215.17, 116.38, 51.82], [216.34, 117.94, 50.97], [215.9, 120.31, 50.11], [217.07, 121.87, 49.26], [217.07, 121.87, 49.26], [217.07, 121.87, 49.26], [216.64, 124.24, 48.41], [217.8, 125.79, 47.56], [218.97, 127.35, 46.7], [218.53, 129.72, 45.85], [219.7, 131.27, 45], [220.86, 132.83, 44.15], [220.86, 132.83, 44.15], [220.43, 135.2, 43.29], [220.43, 135.59, 41.27], [221.6, 136.75, 42.44], [221.16, 139.12, 41.59], [222.33, 140.68, 40.73], [221.9, 143.05, 39.88], [223.06, 144.6, 39.03], [223.06, 144.6, 39.03], [222.63, 146.97, 38.18], [223.79, 148.53, 37.32], [223.36, 150.51, 38.49], [224.53, 152.06, 37.63], [224.53, 152.46, 35.62], [224.09, 154.82, 34.76], [224.09, 154.82, 34.76], [223.66, 157.19, 33.91], [224.83, 158.75, 33.06], [224.4, 161.12, 32.21], [225.56, 162.28, 33.37], [225.13, 164.65, 32.52], [226.29, 166.21, 31.66], [226.29, 166.21, 31.66], [225.86, 168.58, 30.81], [227.03, 170.13, 29.96], [226.59, 172.5, 29.11], [226.16, 174.48, 30.27], [226.16, 174.87, 28.25], [225.73, 177.24, 27.4], [225.73, 177.24, 27.4], [225.3, 179.61, 26.55], [226.46, 181.17, 25.69], [226.03, 183.14, 26.86], [225.6, 185.51, 26.01], [226.76, 187.07, 25.15], [226.33, 189.05, 26.32], [226.33, 189.05, 26.32], [225.9, 191.42, 25.46], [227.07, 192.97, 24.61], [226.63, 195.34, 23.76], [226.2, 197.32, 24.92], [225.77, 199.69, 24.07], [224.17, 200.89, 22.05], [224.17, 200.89, 22.05], [225.34, 202.06, 23.22], [224.91, 204.43, 22.36], [224.48, 206.79, 21.51]];
@@ -129398,8 +129023,8 @@ class VideoPseudocolorRenderer extends FxPreviewRenderer {
     });
   }
 }
-const kaleidoFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform vec2 u_resolution;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float TAU = 6.28318530717958647693;\r\n\r\nvoid main() {\r\n    vec2 res = u_resolution;\r\n    vec2 c = vec2(u_float3 * res.x, u_float4 * res.y);\r\n    vec2 p = v_texCoord * res - c;\r\n    float r = length(p);\r\n    float seg = TAU / max(1.0, u_float0);\r\n    float th = atan(p.y, p.x) - u_float1;\r\n    th = mod(th, TAU);\r\n    float k = mod(th, 2.0 * seg);\r\n    float folded = k < seg ? k : 2.0 * seg - k;\r\n    float phi = folded + u_float1 + u_float2;\r\n    vec2 s = (c + r * vec2(cos(phi), sin(phi))) / res;\r\n    s = 1.0 - abs(mod(s, 2.0) - 1.0);\r\n    fragColor = texture(u_image0, s);\r\n}\r\n";
-const waveWarpFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform vec2 u_resolution;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform int u_int0;\r\nuniform bool u_bool0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float TAU = 6.28318530717958647693;\r\n\r\nvoid main() {\r\n    vec2 uv = v_texCoord;\r\n    float envx = u_bool0 ? 4.0 * uv.x * (1.0 - uv.x) : 1.0;\r\n    float envy = u_bool0 ? 4.0 * uv.y * (1.0 - uv.y) : 1.0;\r\n    float dx = 0.0;\r\n    float dy = 0.0;\r\n    if (u_int0 != 2) {\r\n        dx = u_float0 * envx * sin(TAU * u_float1 * uv.y + u_float2);\r\n    }\r\n    if (u_int0 != 1) {\r\n        dy = u_float0 * envy * sin(TAU * u_float1 * uv.x + u_float2);\r\n    }\r\n    vec2 s = (uv * u_resolution + vec2(dx, dy)) / u_resolution;\r\n    s = 1.0 - abs(mod(s, 2.0) - 1.0);\r\n    fragColor = texture(u_image0, s);\r\n}\r\n";
+const kaleidoFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform vec2 u_resolution;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float TAU = 6.28318530717958647693;\n\nvoid main() {\n    vec2 res = u_resolution;\n    vec2 c = vec2(u_float3 * res.x, u_float4 * res.y);\n    vec2 p = v_texCoord * res - c;\n    float r = length(p);\n    float seg = TAU / max(1.0, u_float0);\n    float th = atan(p.y, p.x) - u_float1;\n    th = mod(th, TAU);\n    float k = mod(th, 2.0 * seg);\n    float folded = k < seg ? k : 2.0 * seg - k;\n    float phi = folded + u_float1 + u_float2;\n    vec2 s = (c + r * vec2(cos(phi), sin(phi))) / res;\n    s = 1.0 - abs(mod(s, 2.0) - 1.0);\n    fragColor = texture(u_image0, s);\n}\n";
+const waveWarpFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform vec2 u_resolution;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform int u_int0;\nuniform bool u_bool0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float TAU = 6.28318530717958647693;\n\nvoid main() {\n    vec2 uv = v_texCoord;\n    float envx = u_bool0 ? 4.0 * uv.x * (1.0 - uv.x) : 1.0;\n    float envy = u_bool0 ? 4.0 * uv.y * (1.0 - uv.y) : 1.0;\n    float dx = 0.0;\n    float dy = 0.0;\n    if (u_int0 != 2) {\n        dx = u_float0 * envx * sin(TAU * u_float1 * uv.y + u_float2);\n    }\n    if (u_int0 != 1) {\n        dy = u_float0 * envy * sin(TAU * u_float1 * uv.x + u_float2);\n    }\n    vec2 s = (uv * u_resolution + vec2(dx, dy)) / u_resolution;\n    s = 1.0 - abs(mod(s, 2.0) - 1.0);\n    fragColor = texture(u_image0, s);\n}\n";
 class VideoKaleidoRenderer extends FxPreviewRenderer {
   constructor() {
     super(kaleidoFrag, {
@@ -130547,7 +130172,7 @@ const _sfc_main$3Z = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ValuePreview = /* @__PURE__ */ _export_sfc(_sfc_main$3Z, [["__scopeId", "data-v-fd7f2cfd"]]);
+const ValuePreview = /* @__PURE__ */ _export_sfc(_sfc_main$3Z, [["__scopeId", "data-v-e2f0e194"]]);
 function makeCollapsed(storageKey) {
   const expanded = useStorage(storageKey, []);
   return (getNodeId) => computed({
@@ -131744,7 +131369,7 @@ const _sfc_main$3Y = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const StageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3Y, [["__scopeId", "data-v-e878b41b"]]);
+const StageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3Y, [["__scopeId", "data-v-567dff90"]]);
 const _sfc_main$3X = /* @__PURE__ */ defineComponent({
   __name: "SceneCanvas",
   props: {
@@ -131925,7 +131550,7 @@ const _sfc_main$3W = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CameraControlPanel = /* @__PURE__ */ _export_sfc(_sfc_main$3W, [["__scopeId", "data-v-d255fcd1"]]);
+const CameraControlPanel = /* @__PURE__ */ _export_sfc(_sfc_main$3W, [["__scopeId", "data-v-36943b02"]]);
 class CameraWidget {
   constructor(options) {
     __publicField(this, "container");
@@ -137317,7 +136942,7 @@ const _sfc_main$3Q = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CropCanvas = /* @__PURE__ */ _export_sfc(_sfc_main$3Q, [["__scopeId", "data-v-377b8156"]]);
+const CropCanvas = /* @__PURE__ */ _export_sfc(_sfc_main$3Q, [["__scopeId", "data-v-b56dbe17"]]);
 function useTransformPipeline(options) {
   const {
     sourceImageUrl,
@@ -137580,7 +137205,7 @@ function parseProbeableViewUrl(videoUrl) {
 }
 let mediabunnyModulePromise;
 function importMediabunny() {
-  return import("./index-CEiRlEKx.mjs");
+  return import("./index-6AXSwC3O.mjs");
 }
 function loadMediabunny() {
   mediabunnyModulePromise ?? (mediabunnyModulePromise = importMediabunny().catch((error2) => {
@@ -138799,7 +138424,7 @@ const _sfc_main$3M = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoCropCanvas = /* @__PURE__ */ _export_sfc(_sfc_main$3M, [["__scopeId", "data-v-d4d4649d"]]);
+const VideoCropCanvas = /* @__PURE__ */ _export_sfc(_sfc_main$3M, [["__scopeId", "data-v-ecc52e90"]]);
 const _hoisted_1$5u = { class: "ctv:flex ctv:flex-col ctv:gap-1.5 ctv:w-full ctv:grow" };
 const _hoisted_2$3v = { class: "ctv:text-2xs ctv:text-center ctv:py-0.5 ctv:tracking-wide" };
 const _hoisted_3$3q = {
@@ -139817,7 +139442,7 @@ const _sfc_main$3H = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const FxSlider$1 = /* @__PURE__ */ _export_sfc(_sfc_main$3H, [["__scopeId", "data-v-7f41bc67"]]);
+const FxSlider$1 = /* @__PURE__ */ _export_sfc(_sfc_main$3H, [["__scopeId", "data-v-7bfbebc2"]]);
 const subs = /* @__PURE__ */ new Set();
 let rafId = 0;
 function loop() {
@@ -140509,7 +140134,7 @@ const _sfc_main$3G = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoPlayerLite = /* @__PURE__ */ _export_sfc(_sfc_main$3G, [["__scopeId", "data-v-e0f15dd8"]]);
+const VideoPlayerLite = /* @__PURE__ */ _export_sfc(_sfc_main$3G, [["__scopeId", "data-v-60ff7524"]]);
 function useNumWidget(node, name, fallback) {
   const local = /* @__PURE__ */ ref(readWidgetNum(node, name, fallback));
   bindWidgetCallback(node, name, (value) => {
@@ -141092,7 +140717,7 @@ const _sfc_main$3C = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoVolumeStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3C, [["__scopeId", "data-v-977e0d99"]]);
+const VideoVolumeStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3C, [["__scopeId", "data-v-a427eccb"]]);
 const _hoisted_1$5j = { class: "ctv:flex ctv:items-center ctv:gap-1.5 ctv:text-[11px]" };
 const _hoisted_2$3l = { class: "ctv:min-w-9 ctv:text-2xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground" };
 const _hoisted_3$3h = ["src"];
@@ -141229,7 +140854,7 @@ const _sfc_main$3B = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoMuxAudioStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3B, [["__scopeId", "data-v-493777f3"]]);
+const VideoMuxAudioStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3B, [["__scopeId", "data-v-9d0180d9"]]);
 const MAX_MARKS = 48;
 function normalizeMarks(list) {
   const uniq = [...new Set(list.filter((n) => Number.isFinite(n) && n >= 0).map((n) => Math.round(n * 100) / 100))];
@@ -141773,7 +141398,7 @@ const _sfc_main$3z = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoResizeStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3z, [["__scopeId", "data-v-c49f9da7"]]);
+const VideoResizeStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3z, [["__scopeId", "data-v-875b6137"]]);
 const PREVIEW_TRANSITION = "transform 80ms linear";
 function mirrorPreviewStyle(flipH, flipV) {
   return {
@@ -142145,7 +141770,7 @@ const _sfc_main$3w = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const GradientSlider = /* @__PURE__ */ _export_sfc(_sfc_main$3w, [["__scopeId", "data-v-fdbb788b"]]);
+const GradientSlider = /* @__PURE__ */ _export_sfc(_sfc_main$3w, [["__scopeId", "data-v-fc560c6c"]]);
 const CURVE_INTERPOLATIONS = ["monotone_cubic", "linear"];
 function identityCurve() {
   return { points: [[0, 0], [1, 1]], interpolation: "monotone_cubic" };
@@ -142462,13 +142087,13 @@ const _sfc_main$3v = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CurveEditor = /* @__PURE__ */ _export_sfc(_sfc_main$3v, [["__scopeId", "data-v-412edb45"]]);
-const brightnessContrast = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0; // Brightness slider -100..100\r\nuniform float u_float1; // Contrast slider -100..100\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float MID_GRAY = 0.18;  // 18% reflectance\r\n\r\n// sRGB gamma 2.2 approximation\r\nvec3 srgbToLinear(vec3 c) {\r\n    return pow(max(c, 0.0), vec3(2.2));\r\n}\r\n\r\nvec3 linearToSrgb(vec3 c) {\r\n    return pow(max(c, 0.0), vec3(1.0/2.2));\r\n}\r\n\r\nfloat mapBrightness(float b) {\r\n    return clamp(b / 100.0, -1.0, 1.0);\r\n}\r\n\r\nfloat mapContrast(float c) {\r\n    return clamp(c / 100.0 + 1.0, 0.0, 2.0);\r\n}\r\n\r\nvoid main() {\r\n    vec4 orig = texture(u_image0, v_texCoord);\r\n\r\n    float brightness = mapBrightness(u_float0);\r\n    float contrast   = mapContrast(u_float1);\r\n\r\n    vec3 lin = srgbToLinear(orig.rgb);\r\n\r\n    lin = (lin - MID_GRAY) * contrast + brightness + MID_GRAY;\r\n\r\n    // Convert back to sRGB\r\n    vec3 result = linearToSrgb(clamp(lin, 0.0, 1.0));\r\n\r\n    fragColor = vec4(result, orig.a);\r\n}\r\n";
-const colorAdjustment = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0; // temperature (-100 to 100)\r\nuniform float u_float1; // tint (-100 to 100)\r\nuniform float u_float2; // vibrance (-100 to 100)\r\nuniform float u_float3; // saturation (-100 to 100)\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float INPUT_SCALE = 0.01;\r\nconst float TEMP_TINT_PRIMARY = 0.3;\r\nconst float TEMP_TINT_SECONDARY = 0.15;\r\nconst float VIBRANCE_BOOST = 2.0;\r\nconst float SATURATION_BOOST = 2.0;\r\nconst float SKIN_PROTECTION = 0.5;\r\nconst float EPSILON = 0.001;\r\nconst vec3 LUMA_WEIGHTS = vec3(0.299, 0.587, 0.114);\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 color = tex.rgb;\r\n    \r\n    // Scale inputs: -100/100 → -1/1\r\n    float temperature = u_float0 * INPUT_SCALE;\r\n    float tint = u_float1 * INPUT_SCALE;\r\n    float vibrance = u_float2 * INPUT_SCALE;\r\n    float saturation = u_float3 * INPUT_SCALE;\r\n    \r\n    // Temperature (warm/cool): positive = warm, negative = cool\r\n    color.r += temperature * TEMP_TINT_PRIMARY;\r\n    color.b -= temperature * TEMP_TINT_PRIMARY;\r\n    \r\n    // Tint (green/magenta): positive = green, negative = magenta\r\n    color.g += tint * TEMP_TINT_PRIMARY;\r\n    color.r -= tint * TEMP_TINT_SECONDARY;\r\n    color.b -= tint * TEMP_TINT_SECONDARY;\r\n    \r\n    // Single clamp after temperature/tint\r\n    color = clamp(color, 0.0, 1.0);\r\n    \r\n    // Vibrance with skin protection\r\n    if (vibrance != 0.0) {\r\n        float maxC = max(color.r, max(color.g, color.b));\r\n        float minC = min(color.r, min(color.g, color.b));\r\n        float sat = maxC - minC;\r\n        float gray = dot(color, LUMA_WEIGHTS);\r\n        \r\n        if (vibrance < 0.0) {\r\n            // Desaturate: -100 → gray\r\n            color = mix(vec3(gray), color, 1.0 + vibrance);\r\n        } else {\r\n            // Boost less saturated colors more\r\n            float vibranceAmt = vibrance * (1.0 - sat);\r\n            \r\n            // Branchless skin tone protection\r\n            float isWarmTone = step(color.b, color.g) * step(color.g, color.r);\r\n            float warmth = (color.r - color.b) / max(maxC, EPSILON);\r\n            float skinTone = isWarmTone * warmth * sat * (1.0 - sat);\r\n            vibranceAmt *= (1.0 - skinTone * SKIN_PROTECTION);\r\n            \r\n            color = mix(vec3(gray), color, 1.0 + vibranceAmt * VIBRANCE_BOOST);\r\n        }\r\n    }\r\n    \r\n    // Saturation\r\n    if (saturation != 0.0) {\r\n        float gray = dot(color, LUMA_WEIGHTS);\r\n        float satMix = saturation < 0.0\r\n            ? 1.0 + saturation                      // -100 → gray\r\n            : 1.0 + saturation * SATURATION_BOOST;  // +100 → 3x boost\r\n        color = mix(vec3(gray), color, satMix);\r\n    }\r\n    \r\n    fragColor = vec4(clamp(color, 0.0, 1.0), tex.a);\r\n}";
-const colorBalance = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\nuniform float u_float5;\r\nuniform float u_float6;\r\nuniform float u_float7;\r\nuniform float u_float8;\r\nuniform bool u_bool0;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvec3 rgb2hsl(vec3 c) {\r\n    float maxC = max(c.r, max(c.g, c.b));\r\n    float minC = min(c.r, min(c.g, c.b));\r\n    float l = (maxC + minC) * 0.5;\r\n    if (maxC == minC) return vec3(0.0, 0.0, l);\r\n    float d = maxC - minC;\r\n    float s = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);\r\n    float h;\r\n    if (maxC == c.r) {\r\n        h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);\r\n    } else if (maxC == c.g) {\r\n        h = (c.b - c.r) / d + 2.0;\r\n    } else {\r\n        h = (c.r - c.g) / d + 4.0;\r\n    }\r\n    h /= 6.0;\r\n    return vec3(h, s, l);\r\n}\r\n\r\nfloat hue2rgb(float p, float q, float t) {\r\n    if (t < 0.0) t += 1.0;\r\n    if (t > 1.0) t -= 1.0;\r\n    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;\r\n    if (t < 1.0 / 2.0) return q;\r\n    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;\r\n    return p;\r\n}\r\n\r\nvec3 hsl2rgb(vec3 hsl) {\r\n    float h = hsl.x, s = hsl.y, l = hsl.z;\r\n    if (s == 0.0) return vec3(l);\r\n    float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;\r\n    float p = 2.0 * l - q;\r\n    return vec3(\r\n        hue2rgb(p, q, h + 1.0 / 3.0),\r\n        hue2rgb(p, q, h),\r\n        hue2rgb(p, q, h - 1.0 / 3.0)\r\n    );\r\n}\r\n\r\nvoid main() {\r\n    vec4 tex = texture(u_image0, v_texCoord);\r\n    vec3 color = tex.rgb;\r\n\r\n    vec3 shadows = vec3(u_float0, u_float1, u_float2) * 0.01;\r\n    vec3 midtones = vec3(u_float3, u_float4, u_float5) * 0.01;\r\n    vec3 highlights = vec3(u_float6, u_float7, u_float8) * 0.01;\r\n\r\n    float maxC = max(color.r, max(color.g, color.b));\r\n    float minC = min(color.r, min(color.g, color.b));\r\n    float lightness = (maxC + minC) * 0.5;\r\n\r\n    // GIMP weight curves: linear ramps with constants a=0.25, b=0.333, scale=0.7\r\n    const float a = 0.25;\r\n    const float b = 0.333;\r\n    const float scale = 0.7;\r\n\r\n    float sw = clamp((lightness - b) / -a + 0.5, 0.0, 1.0) * scale;\r\n    float mw = clamp((lightness - b) / a + 0.5, 0.0, 1.0) *\r\n               clamp((lightness + b - 1.0) / -a + 0.5, 0.0, 1.0) * scale;\r\n    float hw = clamp((lightness + b - 1.0) / a + 0.5, 0.0, 1.0) * scale;\r\n\r\n    color += sw * shadows + mw * midtones + hw * highlights;\r\n\r\n    if (u_bool0) {\r\n        vec3 hsl = rgb2hsl(clamp(color, 0.0, 1.0));\r\n        hsl.z = lightness;\r\n        color = hsl2rgb(hsl);\r\n    }\r\n\r\n    fragColor = vec4(clamp(color, 0.0, 1.0), tex.a);\r\n}\r\n";
-const colorCurves = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_curve0;  // RGB master curve (256x1 LUT)\r\nuniform sampler2D u_curve1;  // Red channel curve\r\nuniform sampler2D u_curve2;  // Green channel curve\r\nuniform sampler2D u_curve3;  // Blue channel curve\r\n\r\nin vec2 v_texCoord;\r\nlayout(location = 0) out vec4 fragColor0;\r\n\r\n// GIMP-compatible curve lookup with manual linear interpolation.\r\n// Matches gimp_curve_map_value_inline() from gimpcurve-map.c:\r\n//   index = value * (n_samples - 1)\r\n//   f = fract(index)\r\n//   result = (1-f) * samples[floor] + f * samples[ceil]\r\n//\r\n// Uses texelFetch (NEAREST) to avoid GPU half-texel offset issues\r\n// that occur with texture() + GL_LINEAR on small 256x1 LUTs.\r\nfloat applyCurve(sampler2D curve, float value) {\r\n    value = clamp(value, 0.0, 1.0);\r\n\r\n    float pos = value * 255.0;\r\n    int lo = int(floor(pos));\r\n    int hi = min(lo + 1, 255);\r\n    float f = pos - float(lo);\r\n\r\n    float a = texelFetch(curve, ivec2(lo, 0), 0).r;\r\n    float b = texelFetch(curve, ivec2(hi, 0), 0).r;\r\n\r\n    return a + f * (b - a);\r\n}\r\n\r\nvoid main() {\r\n    vec4 color = texture(u_image0, v_texCoord);\r\n\r\n    // GIMP order: per-channel curves first, then RGB master curve.\r\n    // See gimp_curve_map_pixels() default case in gimpcurve-map.c:\r\n    //   dest = colors_curve( channel_curve( src ) )\r\n    float tmp_r = applyCurve(u_curve1, color.r);\r\n    float tmp_g = applyCurve(u_curve2, color.g);\r\n    float tmp_b = applyCurve(u_curve3, color.b);\r\n    color.r = applyCurve(u_curve0, tmp_r);\r\n    color.g = applyCurve(u_curve0, tmp_g);\r\n    color.b = applyCurve(u_curve0, tmp_b);\r\n\r\n    fragColor0 = vec4(color.rgb, color.a);\r\n}\r\n";
-const hueSaturation = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform int u_int0;      // Mode: 0=Master, 1=Reds, 2=Yellows, 3=Greens, 4=Cyans, 5=Blues, 6=Magentas, 7=Colorize\r\nuniform int u_int1;      // Color Space: 0=HSL, 1=HSB/HSV\r\nuniform float u_float0;  // Hue (-180 to 180)\r\nuniform float u_float1;  // Saturation (-100 to 100)\r\nuniform float u_float2;  // Lightness/Brightness (-100 to 100)\r\nuniform float u_float3;  // Overlap (0 to 100) - feathering between adjacent color ranges\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\n// Color range modes\r\nconst int MODE_MASTER   = 0;\r\nconst int MODE_RED      = 1;\r\nconst int MODE_YELLOW   = 2;\r\nconst int MODE_GREEN    = 3;\r\nconst int MODE_CYAN     = 4;\r\nconst int MODE_BLUE     = 5;\r\nconst int MODE_MAGENTA  = 6;\r\nconst int MODE_COLORIZE = 7;\r\n\r\n// Color space modes\r\nconst int COLORSPACE_HSL = 0;\r\nconst int COLORSPACE_HSB = 1;\r\n\r\nconst float EPSILON = 0.0001;\r\n\r\n//=============================================================================\r\n// RGB <-> HSL Conversions\r\n//=============================================================================\r\n\r\nvec3 rgb2hsl(vec3 c) {\r\n    float maxC = max(max(c.r, c.g), c.b);\r\n    float minC = min(min(c.r, c.g), c.b);\r\n    float delta = maxC - minC;\r\n\r\n    float h = 0.0;\r\n    float s = 0.0;\r\n    float l = (maxC + minC) * 0.5;\r\n\r\n    if (delta > EPSILON) {\r\n        s = l < 0.5\r\n            ? delta / (maxC + minC)\r\n            : delta / (2.0 - maxC - minC);\r\n\r\n        if (maxC == c.r) {\r\n            h = (c.g - c.b) / delta + (c.g < c.b ? 6.0 : 0.0);\r\n        } else if (maxC == c.g) {\r\n            h = (c.b - c.r) / delta + 2.0;\r\n        } else {\r\n            h = (c.r - c.g) / delta + 4.0;\r\n        }\r\n        h /= 6.0;\r\n    }\r\n\r\n    return vec3(h, s, l);\r\n}\r\n\r\nfloat hue2rgb(float p, float q, float t) {\r\n    t = fract(t);\r\n    if (t < 1.0/6.0) return p + (q - p) * 6.0 * t;\r\n    if (t < 0.5)       return q;\r\n    if (t < 2.0/3.0)   return p + (q - p) * (2.0/3.0 - t) * 6.0;\r\n    return p;\r\n}\r\n\r\nvec3 hsl2rgb(vec3 hsl) {\r\n    if (hsl.y < EPSILON) return vec3(hsl.z);\r\n\r\n    float q = hsl.z < 0.5\r\n        ? hsl.z * (1.0 + hsl.y)\r\n        : hsl.z + hsl.y - hsl.z * hsl.y;\r\n    float p = 2.0 * hsl.z - q;\r\n\r\n    return vec3(\r\n        hue2rgb(p, q, hsl.x + 1.0/3.0),\r\n        hue2rgb(p, q, hsl.x),\r\n        hue2rgb(p, q, hsl.x - 1.0/3.0)\r\n    );\r\n}\r\n\r\nvec3 rgb2hsb(vec3 c) {\r\n    float maxC = max(max(c.r, c.g), c.b);\r\n    float minC = min(min(c.r, c.g), c.b);\r\n    float delta = maxC - minC;\r\n\r\n    float h = 0.0;\r\n    float s = (maxC > EPSILON) ? delta / maxC : 0.0;\r\n    float b = maxC;\r\n\r\n    if (delta > EPSILON) {\r\n        if (maxC == c.r) {\r\n            h = (c.g - c.b) / delta + (c.g < c.b ? 6.0 : 0.0);\r\n        } else if (maxC == c.g) {\r\n            h = (c.b - c.r) / delta + 2.0;\r\n        } else {\r\n            h = (c.r - c.g) / delta + 4.0;\r\n        }\r\n        h /= 6.0;\r\n    }\r\n\r\n    return vec3(h, s, b);\r\n}\r\n\r\nvec3 hsb2rgb(vec3 hsb) {\r\n    vec3 rgb = clamp(abs(mod(hsb.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);\r\n    return hsb.z * mix(vec3(1.0), rgb, hsb.y);\r\n}\r\n\r\n//=============================================================================\r\n// Color Range Weight Calculation\r\n//=============================================================================\r\n\r\nfloat hueDistance(float a, float b) {\r\n    float d = abs(a - b);\r\n    return min(d, 1.0 - d);\r\n}\r\n\r\nfloat getHueWeight(float hue, float center, float overlap) {\r\n    float baseWidth = 1.0 / 6.0;\r\n    float feather = baseWidth * overlap;\r\n\r\n    float d = hueDistance(hue, center);\r\n\r\n    float inner = baseWidth * 0.5;\r\n    float outer = inner + feather;\r\n\r\n    return 1.0 - smoothstep(inner, outer, d);\r\n}\r\n\r\nfloat getModeWeight(float hue, int mode, float overlap) {\r\n    if (mode == MODE_MASTER || mode == MODE_COLORIZE) return 1.0;\r\n\r\n    if (mode == MODE_RED) {\r\n        return max(\r\n            getHueWeight(hue, 0.0, overlap),\r\n            getHueWeight(hue, 1.0, overlap)\r\n        );\r\n    }\r\n\r\n    float center = float(mode - 1) / 6.0;\r\n    return getHueWeight(hue, center, overlap);\r\n}\r\n\r\n//=============================================================================\r\n// Adjustment Functions\r\n//=============================================================================\r\n\r\nfloat adjustLightness(float l, float amount) {\r\n    return amount > 0.0\r\n        ? l + (1.0 - l) * amount\r\n        : l + l * amount;\r\n}\r\n\r\nfloat adjustBrightness(float b, float amount) {\r\n    return clamp(b + amount, 0.0, 1.0);\r\n}\r\n\r\nfloat adjustSaturation(float s, float amount) {\r\n    return amount > 0.0\r\n        ? s + (1.0 - s) * amount\r\n        : s + s * amount;\r\n}\r\n\r\nvec3 colorize(vec3 rgb, float hue, float sat, float light) {\r\n    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));\r\n    float l = adjustLightness(lum, light);\r\n\r\n    vec3 hsl = vec3(fract(hue), clamp(sat, 0.0, 1.0), clamp(l, 0.0, 1.0));\r\n    return hsl2rgb(hsl);\r\n}\r\n\r\n//=============================================================================\r\n// Main\r\n//=============================================================================\r\n\r\nvoid main() {\r\n    vec4 original = texture(u_image0, v_texCoord);\r\n\r\n    float hueShift   = u_float0 / 360.0;   // -180..180 -> -0.5..0.5\r\n    float satAmount  = u_float1 / 100.0;   // -100..100 -> -1..1\r\n    float lightAmount= u_float2 / 100.0;   // -100..100 -> -1..1\r\n    float overlap    = u_float3 / 100.0;   // 0..100 -> 0..1\r\n\r\n    vec3 result;\r\n\r\n    if (u_int0 == MODE_COLORIZE) {\r\n        result = colorize(original.rgb, hueShift, satAmount, lightAmount);\r\n        fragColor = vec4(result, original.a);\r\n        return;\r\n    }\r\n\r\n    vec3 hsx = (u_int1 == COLORSPACE_HSL)\r\n        ? rgb2hsl(original.rgb)\r\n        : rgb2hsb(original.rgb);\r\n\r\n    float weight = getModeWeight(hsx.x, u_int0, overlap);\r\n\r\n    if (u_int0 != MODE_MASTER && hsx.y < EPSILON) {\r\n        weight = 0.0;\r\n    }\r\n\r\n    if (weight > EPSILON) {\r\n        float h = fract(hsx.x + hueShift * weight);\r\n        float s = clamp(adjustSaturation(hsx.y, satAmount * weight), 0.0, 1.0);\r\n        float v = (u_int1 == COLORSPACE_HSL)\r\n            ? clamp(adjustLightness(hsx.z, lightAmount * weight), 0.0, 1.0)\r\n            : clamp(adjustBrightness(hsx.z, lightAmount * weight), 0.0, 1.0);\r\n\r\n        vec3 adjusted = vec3(h, s, v);\r\n        result = (u_int1 == COLORSPACE_HSL)\r\n            ? hsl2rgb(adjusted)\r\n            : hsb2rgb(adjusted);\r\n    } else {\r\n        result = original.rgb;\r\n    }\r\n\r\n    fragColor = vec4(result, original.a);\r\n}\r\n";
-const imageLevels = "#version 300 es\r\nprecision highp float;\r\n\r\n// Levels Adjustment\r\n// u_int0:   channel      (0=RGB, 1=R, 2=G, 3=B)         default: 0\r\n// u_float0: input black  (0-255)                        default: 0\r\n// u_float1: input white  (0-255)                        default: 255\r\n// u_float2: gamma        (0.01-9.99)                    default: 1.0\r\n// u_float3: output black (0-255)                        default: 0\r\n// u_float4: output white (0-255)                        default: 255\r\n\r\nuniform sampler2D u_image0;\r\nuniform int u_int0;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform float u_float2;\r\nuniform float u_float3;\r\nuniform float u_float4;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nvec3 applyLevels(vec3 color, float inBlack, float inWhite, float gamma, float outBlack, float outWhite) {\r\n    float inRange = max(inWhite - inBlack, 0.0001);\r\n    vec3 result = clamp((color - inBlack) / inRange, 0.0, 1.0);\r\n    result = pow(result, vec3(1.0 / gamma));\r\n    result = mix(vec3(outBlack), vec3(outWhite), result);\r\n    return result;\r\n}\r\n\r\nfloat applySingleChannel(float value, float inBlack, float inWhite, float gamma, float outBlack, float outWhite) {\r\n    float inRange = max(inWhite - inBlack, 0.0001);\r\n    float result = clamp((value - inBlack) / inRange, 0.0, 1.0);\r\n    result = pow(result, 1.0 / gamma);\r\n    result = mix(outBlack, outWhite, result);\r\n    return result;\r\n}\r\n\r\nvoid main() {\r\n    vec4 texColor = texture(u_image0, v_texCoord);\r\n    vec3 color = texColor.rgb;\r\n    \r\n    float inBlack = u_float0 / 255.0;\r\n    float inWhite = u_float1 / 255.0;\r\n    float gamma = u_float2;\r\n    float outBlack = u_float3 / 255.0;\r\n    float outWhite = u_float4 / 255.0;\r\n    \r\n    vec3 result;\r\n    \r\n    if (u_int0 == 0) {\r\n        result = applyLevels(color, inBlack, inWhite, gamma, outBlack, outWhite);\r\n    }\r\n    else if (u_int0 == 1) {\r\n        result = color;\r\n        result.r = applySingleChannel(color.r, inBlack, inWhite, gamma, outBlack, outWhite);\r\n    }\r\n    else if (u_int0 == 2) {\r\n        result = color;\r\n        result.g = applySingleChannel(color.g, inBlack, inWhite, gamma, outBlack, outWhite);\r\n    }\r\n    else if (u_int0 == 3) {\r\n        result = color;\r\n        result.b = applySingleChannel(color.b, inBlack, inWhite, gamma, outBlack, outWhite);\r\n    }\r\n    else {\r\n        result = color;\r\n    }\r\n    \r\n    fragColor = vec4(result, texColor.a);\r\n}";
+const CurveEditor = /* @__PURE__ */ _export_sfc(_sfc_main$3v, [["__scopeId", "data-v-0047bd5f"]]);
+const brightnessContrast = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0; // Brightness slider -100..100\nuniform float u_float1; // Contrast slider -100..100\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float MID_GRAY = 0.18;  // 18% reflectance\n\n// sRGB gamma 2.2 approximation\nvec3 srgbToLinear(vec3 c) {\n    return pow(max(c, 0.0), vec3(2.2));\n}\n\nvec3 linearToSrgb(vec3 c) {\n    return pow(max(c, 0.0), vec3(1.0/2.2));\n}\n\nfloat mapBrightness(float b) {\n    return clamp(b / 100.0, -1.0, 1.0);\n}\n\nfloat mapContrast(float c) {\n    return clamp(c / 100.0 + 1.0, 0.0, 2.0);\n}\n\nvoid main() {\n    vec4 orig = texture(u_image0, v_texCoord);\n\n    float brightness = mapBrightness(u_float0);\n    float contrast   = mapContrast(u_float1);\n\n    vec3 lin = srgbToLinear(orig.rgb);\n\n    lin = (lin - MID_GRAY) * contrast + brightness + MID_GRAY;\n\n    // Convert back to sRGB\n    vec3 result = linearToSrgb(clamp(lin, 0.0, 1.0));\n\n    fragColor = vec4(result, orig.a);\n}\n";
+const colorAdjustment = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0; // temperature (-100 to 100)\nuniform float u_float1; // tint (-100 to 100)\nuniform float u_float2; // vibrance (-100 to 100)\nuniform float u_float3; // saturation (-100 to 100)\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float INPUT_SCALE = 0.01;\nconst float TEMP_TINT_PRIMARY = 0.3;\nconst float TEMP_TINT_SECONDARY = 0.15;\nconst float VIBRANCE_BOOST = 2.0;\nconst float SATURATION_BOOST = 2.0;\nconst float SKIN_PROTECTION = 0.5;\nconst float EPSILON = 0.001;\nconst vec3 LUMA_WEIGHTS = vec3(0.299, 0.587, 0.114);\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 color = tex.rgb;\n    \n    // Scale inputs: -100/100 → -1/1\n    float temperature = u_float0 * INPUT_SCALE;\n    float tint = u_float1 * INPUT_SCALE;\n    float vibrance = u_float2 * INPUT_SCALE;\n    float saturation = u_float3 * INPUT_SCALE;\n    \n    // Temperature (warm/cool): positive = warm, negative = cool\n    color.r += temperature * TEMP_TINT_PRIMARY;\n    color.b -= temperature * TEMP_TINT_PRIMARY;\n    \n    // Tint (green/magenta): positive = green, negative = magenta\n    color.g += tint * TEMP_TINT_PRIMARY;\n    color.r -= tint * TEMP_TINT_SECONDARY;\n    color.b -= tint * TEMP_TINT_SECONDARY;\n    \n    // Single clamp after temperature/tint\n    color = clamp(color, 0.0, 1.0);\n    \n    // Vibrance with skin protection\n    if (vibrance != 0.0) {\n        float maxC = max(color.r, max(color.g, color.b));\n        float minC = min(color.r, min(color.g, color.b));\n        float sat = maxC - minC;\n        float gray = dot(color, LUMA_WEIGHTS);\n        \n        if (vibrance < 0.0) {\n            // Desaturate: -100 → gray\n            color = mix(vec3(gray), color, 1.0 + vibrance);\n        } else {\n            // Boost less saturated colors more\n            float vibranceAmt = vibrance * (1.0 - sat);\n            \n            // Branchless skin tone protection\n            float isWarmTone = step(color.b, color.g) * step(color.g, color.r);\n            float warmth = (color.r - color.b) / max(maxC, EPSILON);\n            float skinTone = isWarmTone * warmth * sat * (1.0 - sat);\n            vibranceAmt *= (1.0 - skinTone * SKIN_PROTECTION);\n            \n            color = mix(vec3(gray), color, 1.0 + vibranceAmt * VIBRANCE_BOOST);\n        }\n    }\n    \n    // Saturation\n    if (saturation != 0.0) {\n        float gray = dot(color, LUMA_WEIGHTS);\n        float satMix = saturation < 0.0\n            ? 1.0 + saturation                      // -100 → gray\n            : 1.0 + saturation * SATURATION_BOOST;  // +100 → 3x boost\n        color = mix(vec3(gray), color, satMix);\n    }\n    \n    fragColor = vec4(clamp(color, 0.0, 1.0), tex.a);\n}";
+const colorBalance = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\nuniform float u_float5;\nuniform float u_float6;\nuniform float u_float7;\nuniform float u_float8;\nuniform bool u_bool0;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvec3 rgb2hsl(vec3 c) {\n    float maxC = max(c.r, max(c.g, c.b));\n    float minC = min(c.r, min(c.g, c.b));\n    float l = (maxC + minC) * 0.5;\n    if (maxC == minC) return vec3(0.0, 0.0, l);\n    float d = maxC - minC;\n    float s = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);\n    float h;\n    if (maxC == c.r) {\n        h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);\n    } else if (maxC == c.g) {\n        h = (c.b - c.r) / d + 2.0;\n    } else {\n        h = (c.r - c.g) / d + 4.0;\n    }\n    h /= 6.0;\n    return vec3(h, s, l);\n}\n\nfloat hue2rgb(float p, float q, float t) {\n    if (t < 0.0) t += 1.0;\n    if (t > 1.0) t -= 1.0;\n    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;\n    if (t < 1.0 / 2.0) return q;\n    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;\n    return p;\n}\n\nvec3 hsl2rgb(vec3 hsl) {\n    float h = hsl.x, s = hsl.y, l = hsl.z;\n    if (s == 0.0) return vec3(l);\n    float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;\n    float p = 2.0 * l - q;\n    return vec3(\n        hue2rgb(p, q, h + 1.0 / 3.0),\n        hue2rgb(p, q, h),\n        hue2rgb(p, q, h - 1.0 / 3.0)\n    );\n}\n\nvoid main() {\n    vec4 tex = texture(u_image0, v_texCoord);\n    vec3 color = tex.rgb;\n\n    vec3 shadows = vec3(u_float0, u_float1, u_float2) * 0.01;\n    vec3 midtones = vec3(u_float3, u_float4, u_float5) * 0.01;\n    vec3 highlights = vec3(u_float6, u_float7, u_float8) * 0.01;\n\n    float maxC = max(color.r, max(color.g, color.b));\n    float minC = min(color.r, min(color.g, color.b));\n    float lightness = (maxC + minC) * 0.5;\n\n    // GIMP weight curves: linear ramps with constants a=0.25, b=0.333, scale=0.7\n    const float a = 0.25;\n    const float b = 0.333;\n    const float scale = 0.7;\n\n    float sw = clamp((lightness - b) / -a + 0.5, 0.0, 1.0) * scale;\n    float mw = clamp((lightness - b) / a + 0.5, 0.0, 1.0) *\n               clamp((lightness + b - 1.0) / -a + 0.5, 0.0, 1.0) * scale;\n    float hw = clamp((lightness + b - 1.0) / a + 0.5, 0.0, 1.0) * scale;\n\n    color += sw * shadows + mw * midtones + hw * highlights;\n\n    if (u_bool0) {\n        vec3 hsl = rgb2hsl(clamp(color, 0.0, 1.0));\n        hsl.z = lightness;\n        color = hsl2rgb(hsl);\n    }\n\n    fragColor = vec4(clamp(color, 0.0, 1.0), tex.a);\n}\n";
+const colorCurves = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform sampler2D u_curve0;  // RGB master curve (256x1 LUT)\nuniform sampler2D u_curve1;  // Red channel curve\nuniform sampler2D u_curve2;  // Green channel curve\nuniform sampler2D u_curve3;  // Blue channel curve\n\nin vec2 v_texCoord;\nlayout(location = 0) out vec4 fragColor0;\n\n// GIMP-compatible curve lookup with manual linear interpolation.\n// Matches gimp_curve_map_value_inline() from gimpcurve-map.c:\n//   index = value * (n_samples - 1)\n//   f = fract(index)\n//   result = (1-f) * samples[floor] + f * samples[ceil]\n//\n// Uses texelFetch (NEAREST) to avoid GPU half-texel offset issues\n// that occur with texture() + GL_LINEAR on small 256x1 LUTs.\nfloat applyCurve(sampler2D curve, float value) {\n    value = clamp(value, 0.0, 1.0);\n\n    float pos = value * 255.0;\n    int lo = int(floor(pos));\n    int hi = min(lo + 1, 255);\n    float f = pos - float(lo);\n\n    float a = texelFetch(curve, ivec2(lo, 0), 0).r;\n    float b = texelFetch(curve, ivec2(hi, 0), 0).r;\n\n    return a + f * (b - a);\n}\n\nvoid main() {\n    vec4 color = texture(u_image0, v_texCoord);\n\n    // GIMP order: per-channel curves first, then RGB master curve.\n    // See gimp_curve_map_pixels() default case in gimpcurve-map.c:\n    //   dest = colors_curve( channel_curve( src ) )\n    float tmp_r = applyCurve(u_curve1, color.r);\n    float tmp_g = applyCurve(u_curve2, color.g);\n    float tmp_b = applyCurve(u_curve3, color.b);\n    color.r = applyCurve(u_curve0, tmp_r);\n    color.g = applyCurve(u_curve0, tmp_g);\n    color.b = applyCurve(u_curve0, tmp_b);\n\n    fragColor0 = vec4(color.rgb, color.a);\n}\n";
+const hueSaturation = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform int u_int0;      // Mode: 0=Master, 1=Reds, 2=Yellows, 3=Greens, 4=Cyans, 5=Blues, 6=Magentas, 7=Colorize\nuniform int u_int1;      // Color Space: 0=HSL, 1=HSB/HSV\nuniform float u_float0;  // Hue (-180 to 180)\nuniform float u_float1;  // Saturation (-100 to 100)\nuniform float u_float2;  // Lightness/Brightness (-100 to 100)\nuniform float u_float3;  // Overlap (0 to 100) - feathering between adjacent color ranges\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\n// Color range modes\nconst int MODE_MASTER   = 0;\nconst int MODE_RED      = 1;\nconst int MODE_YELLOW   = 2;\nconst int MODE_GREEN    = 3;\nconst int MODE_CYAN     = 4;\nconst int MODE_BLUE     = 5;\nconst int MODE_MAGENTA  = 6;\nconst int MODE_COLORIZE = 7;\n\n// Color space modes\nconst int COLORSPACE_HSL = 0;\nconst int COLORSPACE_HSB = 1;\n\nconst float EPSILON = 0.0001;\n\n//=============================================================================\n// RGB <-> HSL Conversions\n//=============================================================================\n\nvec3 rgb2hsl(vec3 c) {\n    float maxC = max(max(c.r, c.g), c.b);\n    float minC = min(min(c.r, c.g), c.b);\n    float delta = maxC - minC;\n\n    float h = 0.0;\n    float s = 0.0;\n    float l = (maxC + minC) * 0.5;\n\n    if (delta > EPSILON) {\n        s = l < 0.5\n            ? delta / (maxC + minC)\n            : delta / (2.0 - maxC - minC);\n\n        if (maxC == c.r) {\n            h = (c.g - c.b) / delta + (c.g < c.b ? 6.0 : 0.0);\n        } else if (maxC == c.g) {\n            h = (c.b - c.r) / delta + 2.0;\n        } else {\n            h = (c.r - c.g) / delta + 4.0;\n        }\n        h /= 6.0;\n    }\n\n    return vec3(h, s, l);\n}\n\nfloat hue2rgb(float p, float q, float t) {\n    t = fract(t);\n    if (t < 1.0/6.0) return p + (q - p) * 6.0 * t;\n    if (t < 0.5)       return q;\n    if (t < 2.0/3.0)   return p + (q - p) * (2.0/3.0 - t) * 6.0;\n    return p;\n}\n\nvec3 hsl2rgb(vec3 hsl) {\n    if (hsl.y < EPSILON) return vec3(hsl.z);\n\n    float q = hsl.z < 0.5\n        ? hsl.z * (1.0 + hsl.y)\n        : hsl.z + hsl.y - hsl.z * hsl.y;\n    float p = 2.0 * hsl.z - q;\n\n    return vec3(\n        hue2rgb(p, q, hsl.x + 1.0/3.0),\n        hue2rgb(p, q, hsl.x),\n        hue2rgb(p, q, hsl.x - 1.0/3.0)\n    );\n}\n\nvec3 rgb2hsb(vec3 c) {\n    float maxC = max(max(c.r, c.g), c.b);\n    float minC = min(min(c.r, c.g), c.b);\n    float delta = maxC - minC;\n\n    float h = 0.0;\n    float s = (maxC > EPSILON) ? delta / maxC : 0.0;\n    float b = maxC;\n\n    if (delta > EPSILON) {\n        if (maxC == c.r) {\n            h = (c.g - c.b) / delta + (c.g < c.b ? 6.0 : 0.0);\n        } else if (maxC == c.g) {\n            h = (c.b - c.r) / delta + 2.0;\n        } else {\n            h = (c.r - c.g) / delta + 4.0;\n        }\n        h /= 6.0;\n    }\n\n    return vec3(h, s, b);\n}\n\nvec3 hsb2rgb(vec3 hsb) {\n    vec3 rgb = clamp(abs(mod(hsb.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);\n    return hsb.z * mix(vec3(1.0), rgb, hsb.y);\n}\n\n//=============================================================================\n// Color Range Weight Calculation\n//=============================================================================\n\nfloat hueDistance(float a, float b) {\n    float d = abs(a - b);\n    return min(d, 1.0 - d);\n}\n\nfloat getHueWeight(float hue, float center, float overlap) {\n    float baseWidth = 1.0 / 6.0;\n    float feather = baseWidth * overlap;\n\n    float d = hueDistance(hue, center);\n\n    float inner = baseWidth * 0.5;\n    float outer = inner + feather;\n\n    return 1.0 - smoothstep(inner, outer, d);\n}\n\nfloat getModeWeight(float hue, int mode, float overlap) {\n    if (mode == MODE_MASTER || mode == MODE_COLORIZE) return 1.0;\n\n    if (mode == MODE_RED) {\n        return max(\n            getHueWeight(hue, 0.0, overlap),\n            getHueWeight(hue, 1.0, overlap)\n        );\n    }\n\n    float center = float(mode - 1) / 6.0;\n    return getHueWeight(hue, center, overlap);\n}\n\n//=============================================================================\n// Adjustment Functions\n//=============================================================================\n\nfloat adjustLightness(float l, float amount) {\n    return amount > 0.0\n        ? l + (1.0 - l) * amount\n        : l + l * amount;\n}\n\nfloat adjustBrightness(float b, float amount) {\n    return clamp(b + amount, 0.0, 1.0);\n}\n\nfloat adjustSaturation(float s, float amount) {\n    return amount > 0.0\n        ? s + (1.0 - s) * amount\n        : s + s * amount;\n}\n\nvec3 colorize(vec3 rgb, float hue, float sat, float light) {\n    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));\n    float l = adjustLightness(lum, light);\n\n    vec3 hsl = vec3(fract(hue), clamp(sat, 0.0, 1.0), clamp(l, 0.0, 1.0));\n    return hsl2rgb(hsl);\n}\n\n//=============================================================================\n// Main\n//=============================================================================\n\nvoid main() {\n    vec4 original = texture(u_image0, v_texCoord);\n\n    float hueShift   = u_float0 / 360.0;   // -180..180 -> -0.5..0.5\n    float satAmount  = u_float1 / 100.0;   // -100..100 -> -1..1\n    float lightAmount= u_float2 / 100.0;   // -100..100 -> -1..1\n    float overlap    = u_float3 / 100.0;   // 0..100 -> 0..1\n\n    vec3 result;\n\n    if (u_int0 == MODE_COLORIZE) {\n        result = colorize(original.rgb, hueShift, satAmount, lightAmount);\n        fragColor = vec4(result, original.a);\n        return;\n    }\n\n    vec3 hsx = (u_int1 == COLORSPACE_HSL)\n        ? rgb2hsl(original.rgb)\n        : rgb2hsb(original.rgb);\n\n    float weight = getModeWeight(hsx.x, u_int0, overlap);\n\n    if (u_int0 != MODE_MASTER && hsx.y < EPSILON) {\n        weight = 0.0;\n    }\n\n    if (weight > EPSILON) {\n        float h = fract(hsx.x + hueShift * weight);\n        float s = clamp(adjustSaturation(hsx.y, satAmount * weight), 0.0, 1.0);\n        float v = (u_int1 == COLORSPACE_HSL)\n            ? clamp(adjustLightness(hsx.z, lightAmount * weight), 0.0, 1.0)\n            : clamp(adjustBrightness(hsx.z, lightAmount * weight), 0.0, 1.0);\n\n        vec3 adjusted = vec3(h, s, v);\n        result = (u_int1 == COLORSPACE_HSL)\n            ? hsl2rgb(adjusted)\n            : hsb2rgb(adjusted);\n    } else {\n        result = original.rgb;\n    }\n\n    fragColor = vec4(result, original.a);\n}\n";
+const imageLevels = "#version 300 es\nprecision highp float;\n\n// Levels Adjustment\n// u_int0:   channel      (0=RGB, 1=R, 2=G, 3=B)         default: 0\n// u_float0: input black  (0-255)                        default: 0\n// u_float1: input white  (0-255)                        default: 255\n// u_float2: gamma        (0.01-9.99)                    default: 1.0\n// u_float3: output black (0-255)                        default: 0\n// u_float4: output white (0-255)                        default: 255\n\nuniform sampler2D u_image0;\nuniform int u_int0;\nuniform float u_float0;\nuniform float u_float1;\nuniform float u_float2;\nuniform float u_float3;\nuniform float u_float4;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nvec3 applyLevels(vec3 color, float inBlack, float inWhite, float gamma, float outBlack, float outWhite) {\n    float inRange = max(inWhite - inBlack, 0.0001);\n    vec3 result = clamp((color - inBlack) / inRange, 0.0, 1.0);\n    result = pow(result, vec3(1.0 / gamma));\n    result = mix(vec3(outBlack), vec3(outWhite), result);\n    return result;\n}\n\nfloat applySingleChannel(float value, float inBlack, float inWhite, float gamma, float outBlack, float outWhite) {\n    float inRange = max(inWhite - inBlack, 0.0001);\n    float result = clamp((value - inBlack) / inRange, 0.0, 1.0);\n    result = pow(result, 1.0 / gamma);\n    result = mix(outBlack, outWhite, result);\n    return result;\n}\n\nvoid main() {\n    vec4 texColor = texture(u_image0, v_texCoord);\n    vec3 color = texColor.rgb;\n    \n    float inBlack = u_float0 / 255.0;\n    float inWhite = u_float1 / 255.0;\n    float gamma = u_float2;\n    float outBlack = u_float3 / 255.0;\n    float outWhite = u_float4 / 255.0;\n    \n    vec3 result;\n    \n    if (u_int0 == 0) {\n        result = applyLevels(color, inBlack, inWhite, gamma, outBlack, outWhite);\n    }\n    else if (u_int0 == 1) {\n        result = color;\n        result.r = applySingleChannel(color.r, inBlack, inWhite, gamma, outBlack, outWhite);\n    }\n    else if (u_int0 == 2) {\n        result = color;\n        result.g = applySingleChannel(color.g, inBlack, inWhite, gamma, outBlack, outWhite);\n    }\n    else if (u_int0 == 3) {\n        result = color;\n        result.b = applySingleChannel(color.b, inBlack, inWhite, gamma, outBlack, outWhite);\n    }\n    else {\n        result = color;\n    }\n    \n    fragColor = vec4(result, texColor.a);\n}";
 const f = (index2, key, labelKey, min2, max2, def2, step = 1) => ({ kind: "float", index: index2, key, labelKey, min: min2, max: max2, default: def2, step });
 const fg = (index2, key, labelKey, min2, max2, def2, gradient, step = 1) => ({ kind: "float", index: index2, key, labelKey, min: min2, max: max2, default: def2, step, gradient });
 const cv = (index2, key, labelKey, curveColor) => ({ kind: "curve", index: index2, key, labelKey, default: identityCurve(), curveColor });
@@ -146038,7 +145663,7 @@ const _sfc_main$3r = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const PanoramaCurrentViewStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3r, [["__scopeId", "data-v-0db49e33"]]);
+const PanoramaCurrentViewStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3r, [["__scopeId", "data-v-97591565"]]);
 const SCHEDULE_DELAY_MS$1 = 350;
 const MIN_VIEWS = 2;
 const MAX_VIEWS = 24;
@@ -146281,7 +145906,7 @@ const _sfc_main$3q = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const PanoramaMultiViewStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3q, [["__scopeId", "data-v-4e9d761f"]]);
+const PanoramaMultiViewStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3q, [["__scopeId", "data-v-2c9fd2b5"]]);
 const _hoisted_1$57 = ["src", "alt"];
 const _hoisted_2$3a = ["src", "alt"];
 const _hoisted_3$37 = { class: "ctv:absolute ctv:top-2 ctv:left-2 ctv:z-[7] ctv:py-0.5 ctv:px-1.5 ctv:rounded-lg ctv:bg-black/60 ctv:text-white/90 ctv:text-2xs ctv:tracking-wide ctv:pointer-events-none" };
@@ -148849,7 +148474,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-YPd1igOs.mjs");
+    const { STLLoader } = await import("./STLLoader-DYkuPmHW.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -148857,7 +148482,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-DOwHcywN.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-CTA8OwED.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -151023,7 +150648,7 @@ const _sfc_main$3h = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MeshPrimitiveStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3h, [["__scopeId", "data-v-affe10da"]]);
+const MeshPrimitiveStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3h, [["__scopeId", "data-v-d9a9af65"]]);
 const BOOLEAN_GIZMO_MODES = ["translate", "rotate", "scale"];
 const BOOLEAN_OPERATIONS = ["union", "difference", "intersect"];
 const BOOLEAN_CHANNELS = ["material", "clay", "normal", "wire"];
@@ -151643,7 +151268,7 @@ const _sfc_main$3g = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MeshBooleanStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3g, [["__scopeId", "data-v-ab5e5531"]]);
+const MeshBooleanStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$3g, [["__scopeId", "data-v-951e6d03"]]);
 function computeFit$1(boxW, boxH, mediaW, mediaH) {
   if (!boxW || !boxH || !mediaW || !mediaH) return { scale: 1, offX: 0, offY: 0 };
   const scale = Math.min(boxW / mediaW, boxH / mediaH);
@@ -152752,7 +152377,7 @@ const _sfc_main$3d = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ClipPromptEditor = /* @__PURE__ */ _export_sfc(_sfc_main$3d, [["__scopeId", "data-v-8bd0fa01"]]);
+const ClipPromptEditor = /* @__PURE__ */ _export_sfc(_sfc_main$3d, [["__scopeId", "data-v-63a2a3ab"]]);
 const _hoisted_1$4W = { class: "ctv:py-1 ctv:px-2 ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground" };
 const _hoisted_2$2_ = {
   key: 0,
@@ -153746,7 +153371,7 @@ const _sfc_main$3b = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const DirectorClipRefs = /* @__PURE__ */ _export_sfc(_sfc_main$3b, [["__scopeId", "data-v-b7ec938b"]]);
+const DirectorClipRefs = /* @__PURE__ */ _export_sfc(_sfc_main$3b, [["__scopeId", "data-v-3085a48d"]]);
 const _hoisted_1$4U = {
   key: 0,
   class: "ctv:text-[8px] ctv:text-white/40 ctv:ml-0.5"
@@ -153891,7 +153516,7 @@ const _sfc_main$3a = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const DirectorTrack = /* @__PURE__ */ _export_sfc(_sfc_main$3a, [["__scopeId", "data-v-ad8021f4"]]);
+const DirectorTrack = /* @__PURE__ */ _export_sfc(_sfc_main$3a, [["__scopeId", "data-v-dda7fbdf"]]);
 function buildSegments(clips, statuses) {
   const out = [];
   let px2 = 0;
@@ -154609,7 +154234,7 @@ const _sfc_main$39 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const DirectorStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$39, [["__scopeId", "data-v-04f18719"]]);
+const DirectorStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$39, [["__scopeId", "data-v-1b68f38c"]]);
 function useChainCallback(originalCallback, ...callbacks) {
   return function(...args) {
     if (typeof originalCallback === "function") {
@@ -154913,7 +154538,7 @@ const _sfc_main$38 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const OutpaintStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$38, [["__scopeId", "data-v-05778c35"]]);
+const OutpaintStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$38, [["__scopeId", "data-v-a3632c2a"]]);
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -175065,7 +174690,7 @@ class TileAtlas {
     this.freeSlots = [];
   }
 }
-const LAYER_BLEND_FRAG = "#version 300 es\r\n\r\nprecision highp float;\r\n\r\nuniform sampler2D u_backdrop;\r\nuniform sampler2D u_layer;\r\nuniform sampler2D u_mask;\r\nuniform bool  u_hasMask;\r\nuniform bool  u_srgbLayer;\r\nuniform float u_opacity;\r\nuniform int   u_blend;\r\nuniform int   u_composite;\r\nuniform int   u_blendSpace;\r\nuniform int   u_compositeSpace;\r\nuniform bool  u_clip;\r\n\r\nuniform vec2  u_docSize;\r\nuniform bool  u_hasQuad;\r\nuniform vec2  u_quadCenter;\r\nuniform vec2  u_quadRot;\r\nuniform vec2  u_quadSize;\r\nuniform vec2  u_srcSize;\r\nuniform bool  u_maskHasQuad;\r\nuniform vec2  u_maskQuadCenter;\r\nuniform vec2  u_maskQuadRot;\r\nuniform vec2  u_maskQuadSize;\r\nuniform vec2  u_maskSrcSize;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\n/* Sample a content-sized texture placed as a doc-space quad. The last\r\n   component of the return carries edge coverage in [0,1] (1px AA ramp). */\r\nvec4 sampleQuad(sampler2D tex, vec2 center, vec2 rot, vec2 size, vec2 srcSize, out float cov) {\r\n  vec2 docPx = vec2(v_texCoord.x * u_docSize.x, (1.0 - v_texCoord.y) * u_docSize.y);\r\n  vec2 d = docPx - center;\r\n  vec2 r = vec2(rot.x * d.x + rot.y * d.y, -rot.y * d.x + rot.x * d.y);\r\n  vec2 local = r / size + 0.5;\r\n  vec2 px = local * srcSize;\r\n  vec2 c2 = clamp(min(px, srcSize - px) + 0.5, 0.0, 1.0);\r\n  cov = c2.x * c2.y;\r\n  return texture(tex, vec2(local.x, 1.0 - local.y));\r\n}\r\n\r\nconst float EPS = 1e-6;\r\n\r\nfloat safeDiv(float a, float b) {\r\n  return abs(a) <= EPS ? 0.0 : clamp(a / b, -1e6, 1e6);\r\n}\r\n\r\nfloat srgbToLinear(float c) {\r\n  return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);\r\n}\r\nfloat linearToSrgb(float c) {\r\n  return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055;\r\n}\r\nvec3 srgbToLinear(vec3 c) { return vec3(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b)); }\r\nvec3 linearToSrgb(vec3 c) { return vec3(linearToSrgb(c.r), linearToSrgb(c.g), linearToSrgb(c.b)); }\r\n\r\nvec3 toSpace(vec3 c, int space)   { return space == 0 ? c : linearToSrgb(c); }\r\nvec3 fromSpace(vec3 c, int space) { return space == 0 ? c : srgbToLinear(c); }\r\n\r\nfloat luminance(vec3 c) { return dot(c, vec3(0.22248840, 0.71690369, 0.06060791)); }\r\n\r\nfloat blendChannel(int mode, float i, float l) {\r\n  if (mode == 1)  return i * l;\r\n  if (mode == 2)  return 1.0 - (1.0 - i) * (1.0 - l);\r\n  if (mode == 3)  return i < 0.5 ? 2.0*i*l : 1.0 - 2.0*(1.0-l)*(1.0-i);\r\n  if (mode == 4)  return min(i, l);\r\n  if (mode == 5)  return max(i, l);\r\n  if (mode == 6)  return safeDiv(i, 1.0 - l);\r\n  if (mode == 7)  return 1.0 - safeDiv(1.0 - i, l);\r\n  if (mode == 8)  return l > 0.5 ? min(1.0 - (1.0-i)*(1.0-(l-0.5)*2.0), 1.0)\r\n                                 : min(i*(l*2.0), 1.0);\r\n  if (mode == 9) {\r\n    float m = i * l;\r\n    float s = 1.0 - (1.0 - i) * (1.0 - l);\r\n    return (1.0 - i) * m + i * s;\r\n  }\r\n  if (mode == 10) return abs(i - l);\r\n  if (mode == 11) return 0.5 - 2.0*(i-0.5)*(l-0.5);\r\n  if (mode == 12) return i + l;\r\n  if (mode == 13) return i + l - 1.0;\r\n  if (mode == 14) return l <= 0.5 ? max(1.0 - safeDiv(1.0-i, 2.0*l), 0.0)\r\n                                  : min(safeDiv(i, 2.0*(1.0-l)), 1.0);\r\n  if (mode == 15) return l > 0.5 ? max(i, 2.0*(l-0.5)) : min(i, 2.0*l);\r\n  if (mode == 20) return i + 2.0*l - 1.0;\r\n  if (mode == 21) return i + l < 1.0 ? 0.0 : 1.0;\r\n  if (mode == 22) return i - l;\r\n  if (mode == 23) return safeDiv(i, l);\r\n  if (mode == 24) return i - l + 0.5;\r\n  if (mode == 25) return i + l - 0.5;\r\n  return l;\r\n}\r\n\r\nvec3 blendHue(vec3 i, vec3 l) {\r\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\r\n  float sDelta = sMax - sMin;\r\n  if (sDelta <= EPS) return i;\r\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\r\n  float dDelta = dMax - dMin;\r\n  float dS = dMax != 0.0 ? dDelta / dMax : 0.0;\r\n  float ratio = (dS * dMax) / sDelta;\r\n  float offset = dMax - sMax * ratio;\r\n  return l * ratio + offset;\r\n}\r\nvec3 blendSaturation(vec3 i, vec3 l) {\r\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\r\n  float dDelta = dMax - dMin;\r\n  if (dDelta <= EPS) return vec3(dMax);\r\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\r\n  float sDelta = sMax - sMin;\r\n  float sS = sMax != 0.0 ? sDelta / sMax : 0.0;\r\n  float ratio = (sS * dMax) / dDelta;\r\n  float offset = (1.0 - ratio) * dMax;\r\n  return i * ratio + offset;\r\n}\r\nvec3 blendColor(vec3 i, vec3 l) {\r\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\r\n  float dL = (dMin + dMax) * 0.5;\r\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\r\n  float sL = (sMin + sMax) * 0.5;\r\n  if (abs(sL) <= EPS || abs(1.0 - sL) <= EPS) return vec3(dL);\r\n  bool dHigh = dL > 0.5, sHigh = sL > 0.5;\r\n  dL = min(dL, 1.0 - dL);\r\n  sL = min(sL, 1.0 - sL);\r\n  float ratio = dL / sL;\r\n  float offset = 0.0;\r\n  if (dHigh) offset += 1.0 - 2.0 * dL;\r\n  if (sHigh) offset += 2.0 * dL - ratio;\r\n  return l * ratio + offset;\r\n}\r\nvec3 blendLuminosity(vec3 i, vec3 l) {\r\n  return i * safeDiv(luminance(l), luminance(i));\r\n}\r\n\r\nvec3 blendPixel(int mode, vec3 i, vec3 l) {\r\n  if (mode == 16) return blendHue(i, l);\r\n  if (mode == 17) return blendSaturation(i, l);\r\n  if (mode == 18) return blendColor(i, l);\r\n  if (mode == 19) return blendLuminosity(i, l);\r\n  return vec3(blendChannel(mode, i.r, l.r), blendChannel(mode, i.g, l.g), blendChannel(mode, i.b, l.b));\r\n}\r\n\r\nvec4 composite(int mode, vec4 bg, vec4 layer, vec3 comp, float cov) {\r\n  float inA = bg.a;\r\n  float layerA = layer.a * cov;\r\n  if (mode == 1) {\r\n    if (inA == 0.0 || layerA == 0.0) return vec4(bg.rgb, inA);\r\n    return vec4(comp * layerA + bg.rgb * (1.0 - layerA), inA);\r\n  }\r\n  if (mode == 2) {\r\n    if (layerA == 0.0) return vec4(bg.rgb, layerA);\r\n    if (inA == 0.0)    return vec4(layer.rgb, layerA);\r\n    return vec4(comp * inA + layer.rgb * (1.0 - inA), layerA);\r\n  }\r\n  if (mode == 3) {\r\n    float newA = inA * layer.a * cov;\r\n    return newA == 0.0 ? vec4(bg.rgb, 0.0) : vec4(comp, newA);\r\n  }\r\n\r\n  float newA = layerA + (1.0 - layerA) * inA;\r\n  if (layerA == 0.0 || newA == 0.0) return vec4(bg.rgb, newA);\r\n  if (inA == 0.0)                   return vec4(layer.rgb, newA);\r\n  float ratio = layerA / newA;\r\n  vec3 outRgb = ratio * (inA * (comp - layer.rgb) + layer.rgb - bg.rgb) + bg.rgb;\r\n  return vec4(outRgb, newA);\r\n}\r\n\r\nvoid main() {\r\n  vec4 bg = texture(u_backdrop, v_texCoord);\r\n  vec4 layer;\r\n  if (u_hasQuad) {\r\n    float edge;\r\n    layer = sampleQuad(u_layer, u_quadCenter, u_quadRot, u_quadSize, u_srcSize, edge);\r\n    layer.a *= edge;\r\n  } else {\r\n    layer = texture(u_layer, v_texCoord);\r\n  }\r\n  if (u_srgbLayer) layer.rgb = srgbToLinear(layer.rgb);\r\n\r\n  float cov = u_opacity;\r\n  if (u_hasMask) {\r\n    if (u_maskHasQuad) {\r\n      float medge;\r\n      cov *= sampleQuad(u_mask, u_maskQuadCenter, u_maskQuadRot, u_maskQuadSize, u_maskSrcSize, medge).r * medge;\r\n    } else {\r\n      cov *= texture(u_mask, v_texCoord).r;\r\n    }\r\n  }\r\n  if (u_clip) cov *= bg.a;\r\n\r\n  vec3 comp = fromSpace(blendPixel(u_blend, toSpace(bg.rgb, u_blendSpace), toSpace(layer.rgb, u_blendSpace)), u_blendSpace);\r\n\r\n  vec4 outc;\r\n  if (u_compositeSpace == 0) {\r\n    outc = composite(u_composite, bg, layer, comp, cov);\r\n  } else {\r\n    vec4 bgC = vec4(toSpace(bg.rgb, u_compositeSpace), bg.a);\r\n    vec4 lyC = vec4(toSpace(layer.rgb, u_compositeSpace), layer.a);\r\n    vec4 r = composite(u_composite, bgC, lyC, toSpace(comp, u_compositeSpace), cov);\r\n    outc = vec4(fromSpace(r.rgb, u_compositeSpace), r.a);\r\n  }\r\n\r\n  fragColor = outc;\r\n}\r\n";
+const LAYER_BLEND_FRAG = "#version 300 es\n\nprecision highp float;\n\nuniform sampler2D u_backdrop;\nuniform sampler2D u_layer;\nuniform sampler2D u_mask;\nuniform bool  u_hasMask;\nuniform bool  u_srgbLayer;\nuniform float u_opacity;\nuniform int   u_blend;\nuniform int   u_composite;\nuniform int   u_blendSpace;\nuniform int   u_compositeSpace;\nuniform bool  u_clip;\n\nuniform vec2  u_docSize;\nuniform bool  u_hasQuad;\nuniform vec2  u_quadCenter;\nuniform vec2  u_quadRot;\nuniform vec2  u_quadSize;\nuniform vec2  u_srcSize;\nuniform bool  u_maskHasQuad;\nuniform vec2  u_maskQuadCenter;\nuniform vec2  u_maskQuadRot;\nuniform vec2  u_maskQuadSize;\nuniform vec2  u_maskSrcSize;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\n/* Sample a content-sized texture placed as a doc-space quad. The last\n   component of the return carries edge coverage in [0,1] (1px AA ramp). */\nvec4 sampleQuad(sampler2D tex, vec2 center, vec2 rot, vec2 size, vec2 srcSize, out float cov) {\n  vec2 docPx = vec2(v_texCoord.x * u_docSize.x, (1.0 - v_texCoord.y) * u_docSize.y);\n  vec2 d = docPx - center;\n  vec2 r = vec2(rot.x * d.x + rot.y * d.y, -rot.y * d.x + rot.x * d.y);\n  vec2 local = r / size + 0.5;\n  vec2 px = local * srcSize;\n  vec2 c2 = clamp(min(px, srcSize - px) + 0.5, 0.0, 1.0);\n  cov = c2.x * c2.y;\n  return texture(tex, vec2(local.x, 1.0 - local.y));\n}\n\nconst float EPS = 1e-6;\n\nfloat safeDiv(float a, float b) {\n  return abs(a) <= EPS ? 0.0 : clamp(a / b, -1e6, 1e6);\n}\n\nfloat srgbToLinear(float c) {\n  return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);\n}\nfloat linearToSrgb(float c) {\n  return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055;\n}\nvec3 srgbToLinear(vec3 c) { return vec3(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b)); }\nvec3 linearToSrgb(vec3 c) { return vec3(linearToSrgb(c.r), linearToSrgb(c.g), linearToSrgb(c.b)); }\n\nvec3 toSpace(vec3 c, int space)   { return space == 0 ? c : linearToSrgb(c); }\nvec3 fromSpace(vec3 c, int space) { return space == 0 ? c : srgbToLinear(c); }\n\nfloat luminance(vec3 c) { return dot(c, vec3(0.22248840, 0.71690369, 0.06060791)); }\n\nfloat blendChannel(int mode, float i, float l) {\n  if (mode == 1)  return i * l;\n  if (mode == 2)  return 1.0 - (1.0 - i) * (1.0 - l);\n  if (mode == 3)  return i < 0.5 ? 2.0*i*l : 1.0 - 2.0*(1.0-l)*(1.0-i);\n  if (mode == 4)  return min(i, l);\n  if (mode == 5)  return max(i, l);\n  if (mode == 6)  return safeDiv(i, 1.0 - l);\n  if (mode == 7)  return 1.0 - safeDiv(1.0 - i, l);\n  if (mode == 8)  return l > 0.5 ? min(1.0 - (1.0-i)*(1.0-(l-0.5)*2.0), 1.0)\n                                 : min(i*(l*2.0), 1.0);\n  if (mode == 9) {\n    float m = i * l;\n    float s = 1.0 - (1.0 - i) * (1.0 - l);\n    return (1.0 - i) * m + i * s;\n  }\n  if (mode == 10) return abs(i - l);\n  if (mode == 11) return 0.5 - 2.0*(i-0.5)*(l-0.5);\n  if (mode == 12) return i + l;\n  if (mode == 13) return i + l - 1.0;\n  if (mode == 14) return l <= 0.5 ? max(1.0 - safeDiv(1.0-i, 2.0*l), 0.0)\n                                  : min(safeDiv(i, 2.0*(1.0-l)), 1.0);\n  if (mode == 15) return l > 0.5 ? max(i, 2.0*(l-0.5)) : min(i, 2.0*l);\n  if (mode == 20) return i + 2.0*l - 1.0;\n  if (mode == 21) return i + l < 1.0 ? 0.0 : 1.0;\n  if (mode == 22) return i - l;\n  if (mode == 23) return safeDiv(i, l);\n  if (mode == 24) return i - l + 0.5;\n  if (mode == 25) return i + l - 0.5;\n  return l;\n}\n\nvec3 blendHue(vec3 i, vec3 l) {\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\n  float sDelta = sMax - sMin;\n  if (sDelta <= EPS) return i;\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\n  float dDelta = dMax - dMin;\n  float dS = dMax != 0.0 ? dDelta / dMax : 0.0;\n  float ratio = (dS * dMax) / sDelta;\n  float offset = dMax - sMax * ratio;\n  return l * ratio + offset;\n}\nvec3 blendSaturation(vec3 i, vec3 l) {\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\n  float dDelta = dMax - dMin;\n  if (dDelta <= EPS) return vec3(dMax);\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\n  float sDelta = sMax - sMin;\n  float sS = sMax != 0.0 ? sDelta / sMax : 0.0;\n  float ratio = (sS * dMax) / dDelta;\n  float offset = (1.0 - ratio) * dMax;\n  return i * ratio + offset;\n}\nvec3 blendColor(vec3 i, vec3 l) {\n  float dMin = min(min(i.r, i.g), i.b), dMax = max(max(i.r, i.g), i.b);\n  float dL = (dMin + dMax) * 0.5;\n  float sMin = min(min(l.r, l.g), l.b), sMax = max(max(l.r, l.g), l.b);\n  float sL = (sMin + sMax) * 0.5;\n  if (abs(sL) <= EPS || abs(1.0 - sL) <= EPS) return vec3(dL);\n  bool dHigh = dL > 0.5, sHigh = sL > 0.5;\n  dL = min(dL, 1.0 - dL);\n  sL = min(sL, 1.0 - sL);\n  float ratio = dL / sL;\n  float offset = 0.0;\n  if (dHigh) offset += 1.0 - 2.0 * dL;\n  if (sHigh) offset += 2.0 * dL - ratio;\n  return l * ratio + offset;\n}\nvec3 blendLuminosity(vec3 i, vec3 l) {\n  return i * safeDiv(luminance(l), luminance(i));\n}\n\nvec3 blendPixel(int mode, vec3 i, vec3 l) {\n  if (mode == 16) return blendHue(i, l);\n  if (mode == 17) return blendSaturation(i, l);\n  if (mode == 18) return blendColor(i, l);\n  if (mode == 19) return blendLuminosity(i, l);\n  return vec3(blendChannel(mode, i.r, l.r), blendChannel(mode, i.g, l.g), blendChannel(mode, i.b, l.b));\n}\n\nvec4 composite(int mode, vec4 bg, vec4 layer, vec3 comp, float cov) {\n  float inA = bg.a;\n  float layerA = layer.a * cov;\n  if (mode == 1) {\n    if (inA == 0.0 || layerA == 0.0) return vec4(bg.rgb, inA);\n    return vec4(comp * layerA + bg.rgb * (1.0 - layerA), inA);\n  }\n  if (mode == 2) {\n    if (layerA == 0.0) return vec4(bg.rgb, layerA);\n    if (inA == 0.0)    return vec4(layer.rgb, layerA);\n    return vec4(comp * inA + layer.rgb * (1.0 - inA), layerA);\n  }\n  if (mode == 3) {\n    float newA = inA * layer.a * cov;\n    return newA == 0.0 ? vec4(bg.rgb, 0.0) : vec4(comp, newA);\n  }\n\n  float newA = layerA + (1.0 - layerA) * inA;\n  if (layerA == 0.0 || newA == 0.0) return vec4(bg.rgb, newA);\n  if (inA == 0.0)                   return vec4(layer.rgb, newA);\n  float ratio = layerA / newA;\n  vec3 outRgb = ratio * (inA * (comp - layer.rgb) + layer.rgb - bg.rgb) + bg.rgb;\n  return vec4(outRgb, newA);\n}\n\nvoid main() {\n  vec4 bg = texture(u_backdrop, v_texCoord);\n  vec4 layer;\n  if (u_hasQuad) {\n    float edge;\n    layer = sampleQuad(u_layer, u_quadCenter, u_quadRot, u_quadSize, u_srcSize, edge);\n    layer.a *= edge;\n  } else {\n    layer = texture(u_layer, v_texCoord);\n  }\n  if (u_srgbLayer) layer.rgb = srgbToLinear(layer.rgb);\n\n  float cov = u_opacity;\n  if (u_hasMask) {\n    if (u_maskHasQuad) {\n      float medge;\n      cov *= sampleQuad(u_mask, u_maskQuadCenter, u_maskQuadRot, u_maskQuadSize, u_maskSrcSize, medge).r * medge;\n    } else {\n      cov *= texture(u_mask, v_texCoord).r;\n    }\n  }\n  if (u_clip) cov *= bg.a;\n\n  vec3 comp = fromSpace(blendPixel(u_blend, toSpace(bg.rgb, u_blendSpace), toSpace(layer.rgb, u_blendSpace)), u_blendSpace);\n\n  vec4 outc;\n  if (u_compositeSpace == 0) {\n    outc = composite(u_composite, bg, layer, comp, cov);\n  } else {\n    vec4 bgC = vec4(toSpace(bg.rgb, u_compositeSpace), bg.a);\n    vec4 lyC = vec4(toSpace(layer.rgb, u_compositeSpace), layer.a);\n    vec4 r = composite(u_composite, bgC, lyC, toSpace(comp, u_compositeSpace), cov);\n    outc = vec4(fromSpace(r.rgb, u_compositeSpace), r.a);\n  }\n\n  fragColor = outc;\n}\n";
 const BLEND_COMMON = LAYER_BLEND_FRAG.slice(0, LAYER_BLEND_FRAG.indexOf("void main"));
 const TILE_VERT = `#version 300 es
 layout(location=0) in vec4 a_rect;
@@ -197904,7 +197529,7 @@ const _sfc_main$2H = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const FxSlider = /* @__PURE__ */ _export_sfc(_sfc_main$2H, [["__scopeId", "data-v-153356aa"]]);
+const FxSlider = /* @__PURE__ */ _export_sfc(_sfc_main$2H, [["__scopeId", "data-v-3217b10c"]]);
 const paramLabelClass$1 = "ctv:w-12 ctv:shrink-0 ctv:text-[10px] ctv:uppercase ctv:tracking-wide ctv:text-[#9b9b9b]";
 const paramValueClass = "ctv:w-8 ctv:text-right ctv:text-[10px] ctv:font-mono ctv:text-[#9b9b9b]";
 const menuItemClass$1 = "ctv:flex ctv:items-center ctv:border-0 ctv:bg-transparent ctv:px-3 ctv:py-1 ctv:text-left ctv:text-[11px] ctv:text-[#d6d6d6] ctv:cursor-pointer ctv:[font-family:inherit] ctv:hover:bg-[#3a3a3a] ctv:disabled:opacity-30 ctv:disabled:cursor-default ctv:disabled:hover:bg-transparent";
@@ -206998,7 +206623,7 @@ const _sfc_main$2d = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const FxClipPreviewPanel = /* @__PURE__ */ _export_sfc(_sfc_main$2d, [["__scopeId", "data-v-0d7fa057"]]);
+const FxClipPreviewPanel = /* @__PURE__ */ _export_sfc(_sfc_main$2d, [["__scopeId", "data-v-b2301716"]]);
 function useFxClipPreview(options) {
   const state2 = /* @__PURE__ */ reactive({
     loading: false,
@@ -207483,7 +207108,7 @@ const _sfc_main$2b = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const VideoChromaKeyStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$2b, [["__scopeId", "data-v-bf86999a"]]);
+const VideoChromaKeyStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$2b, [["__scopeId", "data-v-417fc755"]]);
 const _hoisted_1$2K = {
   viewBox: "0 0 24 24",
   width: "1.2em",
@@ -208400,7 +208025,7 @@ function timelineToSeeks(t2, window2, timeline2) {
   }
   return { p: 1, aTime: offset2 + duration2, bTime: tc - lead, aActive: false, bActive: true };
 }
-const videoTransitionFrag = "#version 300 es\r\nprecision highp float;\r\n\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_image1;\r\nuniform sampler2D u_image2;\r\nuniform vec2 u_resolution;\r\nuniform float u_float0;\r\nuniform float u_float1;\r\nuniform int u_int0;\r\nuniform int u_int1;\r\n\r\nin vec2 v_texCoord;\r\nout vec4 fragColor;\r\n\r\nconst float PI = 3.14159265358979;\r\n\r\nvec4 srcA(vec2 p) {\r\n    return texture(u_image0, vec2((p.x + 0.5) / u_resolution.x, 1.0 - (p.y + 0.5) / u_resolution.y));\r\n}\r\n\r\nvec4 srcB(vec2 p) {\r\n    return texture(u_image1, vec2((p.x + 0.5) / u_resolution.x, 1.0 - (p.y + 0.5) / u_resolution.y));\r\n}\r\n\r\nvec4 cmix(vec4 a, vec4 b, float m) {\r\n    return mix(b, a, m);\r\n}\r\n\r\nfloat frand(float x, float y) {\r\n    float r = sin(x * 12.9898 + y * 78.233) * 43758.545;\r\n    return r - floor(r);\r\n}\r\n\r\nvec4 fadeMeta(vec4 a, vec4 b, vec4 bg0, vec4 bg1, float P) {\r\n    return cmix(cmix(a, bg0, smoothstep(0.8, 1.0, P)),\r\n                cmix(bg1, b, smoothstep(0.2, 1.0, P)), P);\r\n}\r\n\r\nvoid main() {\r\n    float w = u_resolution.x;\r\n    float h = u_resolution.y;\r\n    float P = clamp(u_float0, 0.0, 1.0);\r\n    int m = u_int0;\r\n    float xi = floor(v_texCoord.x * w);\r\n    float yi = floor((1.0 - v_texCoord.y) * h);\r\n    vec2 p0 = vec2(xi, yi);\r\n    vec4 A = texture(u_image0, v_texCoord);\r\n    vec4 B = texture(u_image1, v_texCoord);\r\n    vec4 outc = A;\r\n\r\n    if (u_int1 != 0) {\r\n        vec3 lc = texture(u_image2, v_texCoord).rgb;\r\n        float weight = dot(lc, vec3(0.2126, 0.7152, 0.0722));\r\n        if (u_int1 == 2) weight = 1.0 - weight;\r\n        float pos = 1.0 - P;\r\n        float soft = max(u_float1, 1e-6);\r\n        float x = pos * (1.0 + soft);\r\n        float a = clamp((x - weight) / soft, 0.0, 1.0);\r\n        a = a * a * (3.0 - 2.0 * a);\r\n        vec4 lw = mix(A, B, a);\r\n        fragColor = vec4(lw.rgb, 1.0);\r\n        return;\r\n    }\r\n\r\n    if (m == 0) {\r\n        outc = cmix(A, B, P);\r\n    } else if (m == 1) {\r\n        float smoothv = frand(xi, yi) * 2.0 + P * 2.0 - 1.5;\r\n        outc = smoothv >= 0.5 ? A : B;\r\n    } else if (m == 2) {\r\n        outc = fadeMeta(A, B, vec4(0.0, 0.0, 0.0, 1.0), vec4(0.0, 0.0, 0.0, 1.0), P);\r\n    } else if (m == 3) {\r\n        outc = fadeMeta(A, B, vec4(1.0), vec4(1.0), P);\r\n    } else if (m == 4) {\r\n        vec4 g0 = vec4(vec3(dot(A.rgb, vec3(1.0 / 3.0))), A.a);\r\n        vec4 g1 = vec4(vec3(dot(B.rgb, vec3(1.0 / 3.0))), B.a);\r\n        outc = fadeMeta(A, B, g0, g1, P);\r\n    } else if (m == 5) {\r\n        vec4 e = pow(vec4(P), vec4(1.0) + log(vec4(1.0) + abs(A - B)));\r\n        outc = A * e + B * (vec4(1.0) - e);\r\n    } else if (m == 6) {\r\n        vec4 e = pow(vec4(P), vec4(1.0) + log(vec4(2.0) - abs(A - B)));\r\n        outc = A * e + B * (vec4(1.0) - e);\r\n    } else if (m == 7) {\r\n        outc = xi > floor(w * P) ? B : A;\r\n    } else if (m == 8) {\r\n        outc = xi > floor(w * (1.0 - P)) ? A : B;\r\n    } else if (m == 9) {\r\n        outc = yi > floor(h * P) ? B : A;\r\n    } else if (m == 10) {\r\n        outc = yi > floor(h * (1.0 - P)) ? A : B;\r\n    } else if (m == 11) {\r\n        outc = (yi <= floor(h * P) && xi <= floor(w * P)) ? A : B;\r\n    } else if (m == 12) {\r\n        outc = (yi <= floor(h * P) && xi > floor(w * (1.0 - P))) ? A : B;\r\n    } else if (m == 13) {\r\n        outc = (yi > floor(h * (1.0 - P)) && xi <= floor(w * P)) ? A : B;\r\n    } else if (m == 14) {\r\n        outc = (yi > floor(h * (1.0 - P)) && xi > floor(w * (1.0 - P))) ? A : B;\r\n    } else if (m == 15 || m == 16) {\r\n        float z = (m == 15 ? -P : P) * w;\r\n        float zx = floor(z) + xi;\r\n        vec2 s = vec2(mod(zx, w), yi);\r\n        outc = (zx >= 0.0 && zx < w) ? srcB(s) : srcA(s);\r\n    } else if (m == 17 || m == 18) {\r\n        float z = (m == 17 ? -P : P) * h;\r\n        float zy = floor(z) + yi;\r\n        vec2 s = vec2(xi, mod(zy, h));\r\n        outc = (zy >= 0.0 && zy < h) ? srcB(s) : srcA(s);\r\n    } else if (m == 19) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w - P * 2.0));\r\n    } else if (m == 20) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w - P * 2.0));\r\n    } else if (m == 21) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + yi / h - P * 2.0));\r\n    } else if (m == 22) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (h - 1.0 - yi) / h - P * 2.0));\r\n    } else if (m == 23) {\r\n        float z = pow(2.0 * abs(P - 0.5), 3.0) * length(vec2(w, h) * 0.5);\r\n        float dist = length(p0 - vec2(w, h) * 0.5);\r\n        outc = z < dist ? vec4(0.0, 0.0, 0.0, 1.0) : (P < 0.5 ? B : A);\r\n    } else if (m == 24) {\r\n        bool inside = abs(xi - w * 0.5) < abs(P - 0.5) * w\r\n                   && abs(yi - h * 0.5) < abs(P - 0.5) * h;\r\n        outc = inside ? (P < 0.5 ? B : A) : vec4(0.0, 0.0, 0.0, 1.0);\r\n    } else if (m == 25) {\r\n        float z = length(vec2(w, h) * 0.5);\r\n        float smoothv = length(p0 - vec2(w, h) * 0.5) / z + (P - 0.5) * 3.0;\r\n        outc = cmix(A, B, smoothstep(0.0, 1.0, smoothv));\r\n    } else if (m == 26) {\r\n        float z = length(vec2(w, h) * 0.5);\r\n        float smoothv = length(p0 - vec2(w, h) * 0.5) / z + (0.5 - P) * 3.0;\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, smoothv));\r\n    } else if (m == 27) {\r\n        float w2 = w * 0.5;\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 2.0 - abs((xi - w2) / w2) - P * 2.0));\r\n    } else if (m == 28) {\r\n        float w2 = w * 0.5;\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + abs((xi - w2) / w2) - P * 2.0));\r\n    } else if (m == 29) {\r\n        float h2 = h * 0.5;\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 2.0 - abs((yi - h2) / h2) - P * 2.0));\r\n    } else if (m == 30) {\r\n        float h2 = h * 0.5;\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + abs((yi - h2) / h2) - P * 2.0));\r\n    } else if (m == 31) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w * yi / h - P * 2.0));\r\n    } else if (m == 32) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w * yi / h - P * 2.0));\r\n    } else if (m == 33) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w * (h - 1.0 - yi) / h - P * 2.0));\r\n    } else if (m == 34) {\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w * (h - 1.0 - yi) / h - P * 2.0));\r\n    } else if (m >= 35 && m <= 38) {\r\n        float c = m == 35 ? xi / w\r\n                : m == 36 ? (w - 1.0 - xi) / w\r\n                : m == 37 ? yi / h\r\n                : (h - 1.0 - yi) / h;\r\n        float smoothv = smoothstep(-0.5, 0.0, c - P * 1.5);\r\n        float ss = smoothv <= fract(10.0 * c) ? 0.0 : 1.0;\r\n        outc = mix(A, B, ss);\r\n    } else if (m >= 39 && m <= 42) {\r\n        float c = m == 39 ? 1.0 - xi / w\r\n                : m == 40 ? xi / w\r\n                : m == 41 ? 1.0 - yi / h\r\n                : yi / h;\r\n        float r = (m <= 40) ? frand(0.0, yi) : frand(xi, 0.0);\r\n        float ss = 1.0 - smoothstep(-0.2, 0.0, c * 0.8 + 0.2 * r - (1.0 - P) * 1.2);\r\n        outc = mix(A, B, ss);\r\n    } else if (m == 43 || m == 44) {\r\n        float z = (m == 43 ? -P : P) * w;\r\n        float zx = floor(z) + xi;\r\n        outc = (zx >= 0.0 && zx < w) ? srcB(vec2(mod(zx, w), yi)) : A;\r\n    } else if (m == 45 || m == 46) {\r\n        float z = (m == 45 ? -P : P) * h;\r\n        float zy = floor(z) + yi;\r\n        outc = (zy >= 0.0 && zy < h) ? srcB(vec2(xi, mod(zy, h))) : A;\r\n    } else if (m == 47 || m == 48) {\r\n        float z = (m == 47 ? -P : P) * w;\r\n        float zx = floor(z) + xi;\r\n        outc = (zx >= 0.0 && zx < w) ? B : srcA(vec2(mod(zx, w), yi));\r\n    } else if (m == 49 || m == 50) {\r\n        float z = (m == 49 ? -P : P) * h;\r\n        float zy = floor(z) + yi;\r\n        outc = (zy >= 0.0 && zy < h) ? B : srcA(vec2(xi, mod(zy, h)));\r\n    } else if (m == 51) {\r\n        float z = 0.5 + (yi / h - 0.5) / max(P, 0.001);\r\n        outc = (P <= 0.001 || z < 0.0 || z > 1.0) ? B : srcA(vec2(xi, floor(z * (h - 1.0) + 0.5)));\r\n    } else if (m == 52) {\r\n        float z = 0.5 + (xi / w - 0.5) / max(P, 0.001);\r\n        outc = (P <= 0.001 || z < 0.0 || z > 1.0) ? B : srcA(vec2(floor(z * (w - 1.0) + 0.5), yi));\r\n    } else if (m == 53) {\r\n        float zf = smoothstep(0.5, 1.0, P);\r\n        vec2 uv = vec2(xi / w, yi / h);\r\n        uv = vec2(0.5) + (uv - vec2(0.5)) * zf;\r\n        vec2 s = ceil(uv * (vec2(w, h) - 1.0));\r\n        outc = mix(B, srcA(s), smoothstep(0.0, 0.5, P));\r\n    } else if (m == 54) {\r\n        vec3 d = A.rgb - B.rgb;\r\n        float flag = sqrt(dot(d, d)) <= P ? 1.0 : 0.0;\r\n        outc = mix(B, cmix(A, B, flag), P);\r\n    } else if (m == 55) {\r\n        float d = min(P, 1.0 - P);\r\n        float dist = ceil(d * 50.0) / 50.0;\r\n        float sq = 2.0 * dist * min(w, h) / 20.0;\r\n        vec2 s = dist > 0.0\r\n            ? min((floor(p0 / sq) + 0.5) * sq, vec2(w, h) - 1.0)\r\n            : p0;\r\n        outc = cmix(srcA(s), srcB(s), P);\r\n    } else if (m == 56) {\r\n        vec2 rd = vec2(xi - w * 0.5, yi - h * 0.5);\r\n        if (rd == vec2(0.0)) rd = vec2(0.0, 1.0);\r\n        float smoothv = atan(rd.x, rd.y) - (P - 0.5) * (PI * 2.5);\r\n        outc = mix(A, B, smoothstep(0.0, 1.0, smoothv));\r\n    } else if (m == 57) {\r\n        float prog = P <= 0.5 ? P * 2.0 : (1.0 - P) * 2.0;\r\n        float size = 1.0 + floor(w * 0.5) * prog;\r\n        const int TAPS = 24;\r\n        float stride = size / float(TAPS);\r\n        vec4 sum0 = vec4(0.0);\r\n        vec4 sum1 = vec4(0.0);\r\n        for (int k = 0; k < TAPS; k++) {\r\n            float sx = min(xi + (float(k) + 0.5) * stride, w - 1.0);\r\n            vec2 s = vec2(sx, yi);\r\n            sum0 += srcA(s);\r\n            sum1 += srcB(s);\r\n        }\r\n        outc = cmix(sum0 / float(TAPS), sum1 / float(TAPS), P);\r\n    }\r\n\r\n    fragColor = vec4(outc.rgb, 1.0);\r\n}\r\n";
+const videoTransitionFrag = "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform sampler2D u_image1;\nuniform sampler2D u_image2;\nuniform vec2 u_resolution;\nuniform float u_float0;\nuniform float u_float1;\nuniform int u_int0;\nuniform int u_int1;\n\nin vec2 v_texCoord;\nout vec4 fragColor;\n\nconst float PI = 3.14159265358979;\n\nvec4 srcA(vec2 p) {\n    return texture(u_image0, vec2((p.x + 0.5) / u_resolution.x, 1.0 - (p.y + 0.5) / u_resolution.y));\n}\n\nvec4 srcB(vec2 p) {\n    return texture(u_image1, vec2((p.x + 0.5) / u_resolution.x, 1.0 - (p.y + 0.5) / u_resolution.y));\n}\n\nvec4 cmix(vec4 a, vec4 b, float m) {\n    return mix(b, a, m);\n}\n\nfloat frand(float x, float y) {\n    float r = sin(x * 12.9898 + y * 78.233) * 43758.545;\n    return r - floor(r);\n}\n\nvec4 fadeMeta(vec4 a, vec4 b, vec4 bg0, vec4 bg1, float P) {\n    return cmix(cmix(a, bg0, smoothstep(0.8, 1.0, P)),\n                cmix(bg1, b, smoothstep(0.2, 1.0, P)), P);\n}\n\nvoid main() {\n    float w = u_resolution.x;\n    float h = u_resolution.y;\n    float P = clamp(u_float0, 0.0, 1.0);\n    int m = u_int0;\n    float xi = floor(v_texCoord.x * w);\n    float yi = floor((1.0 - v_texCoord.y) * h);\n    vec2 p0 = vec2(xi, yi);\n    vec4 A = texture(u_image0, v_texCoord);\n    vec4 B = texture(u_image1, v_texCoord);\n    vec4 outc = A;\n\n    if (u_int1 != 0) {\n        vec3 lc = texture(u_image2, v_texCoord).rgb;\n        float weight = dot(lc, vec3(0.2126, 0.7152, 0.0722));\n        if (u_int1 == 2) weight = 1.0 - weight;\n        float pos = 1.0 - P;\n        float soft = max(u_float1, 1e-6);\n        float x = pos * (1.0 + soft);\n        float a = clamp((x - weight) / soft, 0.0, 1.0);\n        a = a * a * (3.0 - 2.0 * a);\n        vec4 lw = mix(A, B, a);\n        fragColor = vec4(lw.rgb, 1.0);\n        return;\n    }\n\n    if (m == 0) {\n        outc = cmix(A, B, P);\n    } else if (m == 1) {\n        float smoothv = frand(xi, yi) * 2.0 + P * 2.0 - 1.5;\n        outc = smoothv >= 0.5 ? A : B;\n    } else if (m == 2) {\n        outc = fadeMeta(A, B, vec4(0.0, 0.0, 0.0, 1.0), vec4(0.0, 0.0, 0.0, 1.0), P);\n    } else if (m == 3) {\n        outc = fadeMeta(A, B, vec4(1.0), vec4(1.0), P);\n    } else if (m == 4) {\n        vec4 g0 = vec4(vec3(dot(A.rgb, vec3(1.0 / 3.0))), A.a);\n        vec4 g1 = vec4(vec3(dot(B.rgb, vec3(1.0 / 3.0))), B.a);\n        outc = fadeMeta(A, B, g0, g1, P);\n    } else if (m == 5) {\n        vec4 e = pow(vec4(P), vec4(1.0) + log(vec4(1.0) + abs(A - B)));\n        outc = A * e + B * (vec4(1.0) - e);\n    } else if (m == 6) {\n        vec4 e = pow(vec4(P), vec4(1.0) + log(vec4(2.0) - abs(A - B)));\n        outc = A * e + B * (vec4(1.0) - e);\n    } else if (m == 7) {\n        outc = xi > floor(w * P) ? B : A;\n    } else if (m == 8) {\n        outc = xi > floor(w * (1.0 - P)) ? A : B;\n    } else if (m == 9) {\n        outc = yi > floor(h * P) ? B : A;\n    } else if (m == 10) {\n        outc = yi > floor(h * (1.0 - P)) ? A : B;\n    } else if (m == 11) {\n        outc = (yi <= floor(h * P) && xi <= floor(w * P)) ? A : B;\n    } else if (m == 12) {\n        outc = (yi <= floor(h * P) && xi > floor(w * (1.0 - P))) ? A : B;\n    } else if (m == 13) {\n        outc = (yi > floor(h * (1.0 - P)) && xi <= floor(w * P)) ? A : B;\n    } else if (m == 14) {\n        outc = (yi > floor(h * (1.0 - P)) && xi > floor(w * (1.0 - P))) ? A : B;\n    } else if (m == 15 || m == 16) {\n        float z = (m == 15 ? -P : P) * w;\n        float zx = floor(z) + xi;\n        vec2 s = vec2(mod(zx, w), yi);\n        outc = (zx >= 0.0 && zx < w) ? srcB(s) : srcA(s);\n    } else if (m == 17 || m == 18) {\n        float z = (m == 17 ? -P : P) * h;\n        float zy = floor(z) + yi;\n        vec2 s = vec2(xi, mod(zy, h));\n        outc = (zy >= 0.0 && zy < h) ? srcB(s) : srcA(s);\n    } else if (m == 19) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w - P * 2.0));\n    } else if (m == 20) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w - P * 2.0));\n    } else if (m == 21) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + yi / h - P * 2.0));\n    } else if (m == 22) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (h - 1.0 - yi) / h - P * 2.0));\n    } else if (m == 23) {\n        float z = pow(2.0 * abs(P - 0.5), 3.0) * length(vec2(w, h) * 0.5);\n        float dist = length(p0 - vec2(w, h) * 0.5);\n        outc = z < dist ? vec4(0.0, 0.0, 0.0, 1.0) : (P < 0.5 ? B : A);\n    } else if (m == 24) {\n        bool inside = abs(xi - w * 0.5) < abs(P - 0.5) * w\n                   && abs(yi - h * 0.5) < abs(P - 0.5) * h;\n        outc = inside ? (P < 0.5 ? B : A) : vec4(0.0, 0.0, 0.0, 1.0);\n    } else if (m == 25) {\n        float z = length(vec2(w, h) * 0.5);\n        float smoothv = length(p0 - vec2(w, h) * 0.5) / z + (P - 0.5) * 3.0;\n        outc = cmix(A, B, smoothstep(0.0, 1.0, smoothv));\n    } else if (m == 26) {\n        float z = length(vec2(w, h) * 0.5);\n        float smoothv = length(p0 - vec2(w, h) * 0.5) / z + (0.5 - P) * 3.0;\n        outc = mix(A, B, smoothstep(0.0, 1.0, smoothv));\n    } else if (m == 27) {\n        float w2 = w * 0.5;\n        outc = mix(A, B, smoothstep(0.0, 1.0, 2.0 - abs((xi - w2) / w2) - P * 2.0));\n    } else if (m == 28) {\n        float w2 = w * 0.5;\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + abs((xi - w2) / w2) - P * 2.0));\n    } else if (m == 29) {\n        float h2 = h * 0.5;\n        outc = mix(A, B, smoothstep(0.0, 1.0, 2.0 - abs((yi - h2) / h2) - P * 2.0));\n    } else if (m == 30) {\n        float h2 = h * 0.5;\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + abs((yi - h2) / h2) - P * 2.0));\n    } else if (m == 31) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w * yi / h - P * 2.0));\n    } else if (m == 32) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w * yi / h - P * 2.0));\n    } else if (m == 33) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + xi / w * (h - 1.0 - yi) / h - P * 2.0));\n    } else if (m == 34) {\n        outc = mix(A, B, smoothstep(0.0, 1.0, 1.0 + (w - 1.0 - xi) / w * (h - 1.0 - yi) / h - P * 2.0));\n    } else if (m >= 35 && m <= 38) {\n        float c = m == 35 ? xi / w\n                : m == 36 ? (w - 1.0 - xi) / w\n                : m == 37 ? yi / h\n                : (h - 1.0 - yi) / h;\n        float smoothv = smoothstep(-0.5, 0.0, c - P * 1.5);\n        float ss = smoothv <= fract(10.0 * c) ? 0.0 : 1.0;\n        outc = mix(A, B, ss);\n    } else if (m >= 39 && m <= 42) {\n        float c = m == 39 ? 1.0 - xi / w\n                : m == 40 ? xi / w\n                : m == 41 ? 1.0 - yi / h\n                : yi / h;\n        float r = (m <= 40) ? frand(0.0, yi) : frand(xi, 0.0);\n        float ss = 1.0 - smoothstep(-0.2, 0.0, c * 0.8 + 0.2 * r - (1.0 - P) * 1.2);\n        outc = mix(A, B, ss);\n    } else if (m == 43 || m == 44) {\n        float z = (m == 43 ? -P : P) * w;\n        float zx = floor(z) + xi;\n        outc = (zx >= 0.0 && zx < w) ? srcB(vec2(mod(zx, w), yi)) : A;\n    } else if (m == 45 || m == 46) {\n        float z = (m == 45 ? -P : P) * h;\n        float zy = floor(z) + yi;\n        outc = (zy >= 0.0 && zy < h) ? srcB(vec2(xi, mod(zy, h))) : A;\n    } else if (m == 47 || m == 48) {\n        float z = (m == 47 ? -P : P) * w;\n        float zx = floor(z) + xi;\n        outc = (zx >= 0.0 && zx < w) ? B : srcA(vec2(mod(zx, w), yi));\n    } else if (m == 49 || m == 50) {\n        float z = (m == 49 ? -P : P) * h;\n        float zy = floor(z) + yi;\n        outc = (zy >= 0.0 && zy < h) ? B : srcA(vec2(xi, mod(zy, h)));\n    } else if (m == 51) {\n        float z = 0.5 + (yi / h - 0.5) / max(P, 0.001);\n        outc = (P <= 0.001 || z < 0.0 || z > 1.0) ? B : srcA(vec2(xi, floor(z * (h - 1.0) + 0.5)));\n    } else if (m == 52) {\n        float z = 0.5 + (xi / w - 0.5) / max(P, 0.001);\n        outc = (P <= 0.001 || z < 0.0 || z > 1.0) ? B : srcA(vec2(floor(z * (w - 1.0) + 0.5), yi));\n    } else if (m == 53) {\n        float zf = smoothstep(0.5, 1.0, P);\n        vec2 uv = vec2(xi / w, yi / h);\n        uv = vec2(0.5) + (uv - vec2(0.5)) * zf;\n        vec2 s = ceil(uv * (vec2(w, h) - 1.0));\n        outc = mix(B, srcA(s), smoothstep(0.0, 0.5, P));\n    } else if (m == 54) {\n        vec3 d = A.rgb - B.rgb;\n        float flag = sqrt(dot(d, d)) <= P ? 1.0 : 0.0;\n        outc = mix(B, cmix(A, B, flag), P);\n    } else if (m == 55) {\n        float d = min(P, 1.0 - P);\n        float dist = ceil(d * 50.0) / 50.0;\n        float sq = 2.0 * dist * min(w, h) / 20.0;\n        vec2 s = dist > 0.0\n            ? min((floor(p0 / sq) + 0.5) * sq, vec2(w, h) - 1.0)\n            : p0;\n        outc = cmix(srcA(s), srcB(s), P);\n    } else if (m == 56) {\n        vec2 rd = vec2(xi - w * 0.5, yi - h * 0.5);\n        if (rd == vec2(0.0)) rd = vec2(0.0, 1.0);\n        float smoothv = atan(rd.x, rd.y) - (P - 0.5) * (PI * 2.5);\n        outc = mix(A, B, smoothstep(0.0, 1.0, smoothv));\n    } else if (m == 57) {\n        float prog = P <= 0.5 ? P * 2.0 : (1.0 - P) * 2.0;\n        float size = 1.0 + floor(w * 0.5) * prog;\n        const int TAPS = 24;\n        float stride = size / float(TAPS);\n        vec4 sum0 = vec4(0.0);\n        vec4 sum1 = vec4(0.0);\n        for (int k = 0; k < TAPS; k++) {\n            float sx = min(xi + (float(k) + 0.5) * stride, w - 1.0);\n            vec2 s = vec2(sx, yi);\n            sum0 += srcA(s);\n            sum1 += srcB(s);\n        }\n        outc = cmix(sum0 / float(TAPS), sum1 / float(TAPS), P);\n    }\n\n    fragColor = vec4(outc.rgb, 1.0);\n}\n";
 const RENDER_CONFIG = {
   maxInputs: 3,
   maxCurves: 0
@@ -216485,7 +216110,7 @@ const _sfc_main$1y = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const SequenceStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1y, [["__scopeId", "data-v-2c7b8d2d"]]);
+const SequenceStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1y, [["__scopeId", "data-v-5879e07a"]]);
 const _hoisted_1$1x = { class: "ctv:flex ctv:items-center ctv:gap-1 ctv:text-2xs ctv:text-muted-foreground ctv:cursor-pointer" };
 const _hoisted_2$1t = { class: "ctv:text-2xs ctv:text-center ctv:py-0.5 ctv:tracking-wide" };
 const _hoisted_3$1s = {
@@ -218502,7 +218127,7 @@ const _sfc_main$1p = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const PIKStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1p, [["__scopeId", "data-v-ada0536a"]]);
+const PIKStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1p, [["__scopeId", "data-v-947bf2ec"]]);
 const _hoisted_1$1o = {
   key: 0,
   class: "ctv:flex ctv:items-center ctv:gap-2 ctv:text-2xs ctv:text-muted-foreground"
@@ -218722,7 +218347,7 @@ const _sfc_main$1o = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const KeyerStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1o, [["__scopeId", "data-v-24f370b9"]]);
+const KeyerStageCard = /* @__PURE__ */ _export_sfc(_sfc_main$1o, [["__scopeId", "data-v-c7d1d8fd"]]);
 const _hoisted_1$1n = { class: "ctv:flex ctv:items-center ctv:gap-1 ctv:text-2xs ctv:text-muted-foreground ctv:cursor-pointer" };
 const _hoisted_2$1j = { class: "ctv:text-2xs ctv:text-center ctv:py-0.5 ctv:tracking-wide" };
 const _hoisted_3$1i = {
@@ -235173,7 +234798,7 @@ const _sfc_main$o = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MediaToolbarV2 = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["__scopeId", "data-v-2ab1ef28"]]);
+const MediaToolbarV2 = /* @__PURE__ */ _export_sfc(_sfc_main$o, [["__scopeId", "data-v-046a7705"]]);
 function isVideoOutputKind(kind) {
   return kind === "video" || kind === "video-picker";
 }
@@ -235332,7 +234957,7 @@ const _sfc_main$n = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CustomParamsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["__scopeId", "data-v-e04ad207"]]);
+const CustomParamsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$n, [["__scopeId", "data-v-61058da2"]]);
 const _hoisted_1$k = ["aria-expanded"];
 const _hoisted_2$j = {
   key: 0,
@@ -235728,7 +235353,7 @@ const _sfc_main$l = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const FooterSelectsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["__scopeId", "data-v-378d1834"]]);
+const FooterSelectsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$l, [["__scopeId", "data-v-98e97b33"]]);
 const _hoisted_1$i = ["title"];
 const _hoisted_2$h = ["data-done", "title"];
 const _hoisted_3$g = ["fill"];
@@ -235943,7 +235568,7 @@ const _sfc_main$k = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MediaCornerV2 = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["__scopeId", "data-v-57424a1e"]]);
+const MediaCornerV2 = /* @__PURE__ */ _export_sfc(_sfc_main$k, [["__scopeId", "data-v-a1cae10f"]]);
 function useNodeUiFlag(getNode2, key, fallback = false) {
   const tick = /* @__PURE__ */ ref(0);
   return computed({
@@ -236123,7 +235748,7 @@ const _sfc_main$j = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ParamsPanelV2 = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-baf880de"]]);
+const ParamsPanelV2 = /* @__PURE__ */ _export_sfc(_sfc_main$j, [["__scopeId", "data-v-2eab09a2"]]);
 const _hoisted_1$g = ["data-drop"];
 const _hoisted_2$f = ["data-src", "data-type", "data-dragging", "data-drop-before", "title", "onPointerdown"];
 const _hoisted_3$e = ["src"];
@@ -236326,7 +235951,7 @@ const _sfc_main$i = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MediaStripV2 = /* @__PURE__ */ _export_sfc(_sfc_main$i, [["__scopeId", "data-v-9d7edc5b"]]);
+const MediaStripV2 = /* @__PURE__ */ _export_sfc(_sfc_main$i, [["__scopeId", "data-v-1476a3e5"]]);
 const _sfc_main$h = /* @__PURE__ */ defineComponent({
   __name: "ServerSelectV2",
   props: {
@@ -236343,7 +235968,7 @@ const _sfc_main$h = /* @__PURE__ */ defineComponent({
         onPointerdown: _cache2[0] || (_cache2[0] = withModifiers(() => {
         }, ["stop"]))
       }, [
-        _cache2[1] || (_cache2[1] = createStaticVNode('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" data-v-8895ccb3><rect x="3.5" y="4" width="17" height="6.5" rx="1.5" data-v-8895ccb3></rect><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" data-v-8895ccb3></rect><circle cx="7" cy="7.2" r="0.9" fill="currentColor" stroke="none" data-v-8895ccb3></circle><circle cx="7" cy="16.7" r="0.9" fill="currentColor" stroke="none" data-v-8895ccb3></circle></svg>', 1)),
+        _cache2[1] || (_cache2[1] = createStaticVNode('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" data-v-67a9f1ee><rect x="3.5" y="4" width="17" height="6.5" rx="1.5" data-v-67a9f1ee></rect><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" data-v-67a9f1ee></rect><circle cx="7" cy="7.2" r="0.9" fill="currentColor" stroke="none" data-v-67a9f1ee></circle><circle cx="7" cy="16.7" r="0.9" fill="currentColor" stroke="none" data-v-67a9f1ee></circle></svg>', 1)),
         createVNode(_sfc_main$4w, {
           class: "v2-srv__select",
           "model-value": unref(serverSelection),
@@ -236356,7 +235981,7 @@ const _sfc_main$h = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const ServerSelectV2 = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-8895ccb3"]]);
+const ServerSelectV2 = /* @__PURE__ */ _export_sfc(_sfc_main$h, [["__scopeId", "data-v-67a9f1ee"]]);
 const nudgeScope = effectScope(true);
 const nudgePending = /* @__PURE__ */ new Set();
 let nudged = [];
@@ -236720,7 +236345,7 @@ const _sfc_main$g = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MediaMetaV2 = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["__scopeId", "data-v-2873c4ed"]]);
+const MediaMetaV2 = /* @__PURE__ */ _export_sfc(_sfc_main$g, [["__scopeId", "data-v-ae38efd0"]]);
 const queue = /* @__PURE__ */ new Map();
 const scope$2 = effectScope(true);
 const raf = scope$2.run(() => useRafFn(() => {
@@ -238290,7 +237915,7 @@ const _sfc_main$f = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const MediaPreviewV2 = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-538ea160"]]);
+const MediaPreviewV2 = /* @__PURE__ */ _export_sfc(_sfc_main$f, [["__scopeId", "data-v-a8618759"]]);
 const PICKER_CSS = `
 .v2-picker-footer {
   flex: none;
@@ -238687,7 +238312,7 @@ const _sfc_main$e = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CropEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["__scopeId", "data-v-c14c73fc"]]);
+const CropEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$e, [["__scopeId", "data-v-dddff5f9"]]);
 const CROP_CSS = `
 .v2-crop-card {
   padding: 0 6px 6px !important;
@@ -238804,7 +238429,7 @@ const _sfc_main$d = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CompareEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-285630a8"]]);
+const CompareEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$d, [["__scopeId", "data-v-8d92d412"]]);
 const _hoisted_1$b = { class: "v2-ed__canvas" };
 const _hoisted_2$a = { class: "v2-ed__fit" };
 const _hoisted_3$9 = {
@@ -239005,7 +238630,7 @@ const _sfc_main$c = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const GradeEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["__scopeId", "data-v-bbf922be"]]);
+const GradeEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$c, [["__scopeId", "data-v-8aed7568"]]);
 const _hoisted_1$a = { class: "v2-ed__fit" };
 const _hoisted_2$9 = ["src"];
 const _hoisted_3$8 = {
@@ -239198,7 +238823,7 @@ const _sfc_main$b = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const GridSplitEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["__scopeId", "data-v-b090790a"]]);
+const GridSplitEditorV2 = /* @__PURE__ */ _export_sfc(_sfc_main$b, [["__scopeId", "data-v-b45f0c08"]]);
 const _hoisted_1$9 = { class: "v2-ed__canvas" };
 const _hoisted_2$8 = { class: "v2-ed__fit" };
 const _hoisted_3$7 = ["src"];
@@ -239768,7 +239393,7 @@ const _sfc_main$8 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CardEmbedV2 = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-b4d1bc12"]]);
+const CardEmbedV2 = /* @__PURE__ */ _export_sfc(_sfc_main$8, [["__scopeId", "data-v-cb7fcb74"]]);
 const FX_CSS = `
 .v2-fx-host:not(.v2-fx-plain) .v2-fx-embed > div > :first-child {
   border-radius: 12px;
@@ -240836,7 +240461,7 @@ const _sfc_main$7 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const FxChainCardV2 = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-113561b6"]]);
+const FxChainCardV2 = /* @__PURE__ */ _export_sfc(_sfc_main$7, [["__scopeId", "data-v-ca1b50a3"]]);
 const ICON_COLOR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 010 18c-1.5 0-2-1-1.3-2.2.8-1.4-.2-2.8-1.9-2.8H7a4 4 0 01-4-4"/><circle cx="8" cy="9" r="1.2" fill="currentColor" stroke="none"/><circle cx="13" cy="7" r="1.2" fill="currentColor" stroke="none"/><circle cx="17" cy="11" r="1.2" fill="currentColor" stroke="none"/></svg>`;
 const ICON_CURVE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20C10 20 14 4 20 4"/><path d="M4 20V4M4 20h16"/></svg>`;
 const ICON_CHAIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="5" height="5" rx="1.2"/><rect x="16" y="6" width="5" height="5" rx="1.2"/><rect x="9.5" y="14" width="5" height="5" rx="1.2"/><path d="M8 8.5h8M5.5 11v3.5a2 2 0 002 2h2M18.5 11v3.5a2 2 0 01-2 2h-2"/></svg>`;
@@ -242142,7 +241767,7 @@ const _sfc_main$5 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const AssetLoaderV2 = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-1d0ed70f"]]);
+const AssetLoaderV2 = /* @__PURE__ */ _export_sfc(_sfc_main$5, [["__scopeId", "data-v-4b20c073"]]);
 const _hoisted_1$4 = ["title"];
 const _sfc_main$4 = /* @__PURE__ */ defineComponent({
   __name: "LoaderActionsV2",
@@ -242171,7 +241796,7 @@ const _sfc_main$4 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const LoaderActionsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-81381f88"]]);
+const LoaderActionsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$4, [["__scopeId", "data-v-205d1a9f"]]);
 const LOADER_CSS = `
 .v2-loader-preview { cursor: pointer; }
 .v2-loader-preview[data-drag="1"] {
@@ -242634,7 +242259,7 @@ const _sfc_main$3 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const StageControlsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-96cb81d5"]]);
+const StageControlsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-d7f0eab5"]]);
 const _hoisted_1$2 = ["data-done", "title"];
 const _hoisted_2$2 = ["disabled", "title"];
 const _hoisted_3$2 = ["fill"];
@@ -242733,7 +242358,7 @@ const _sfc_main$2 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const TextCornerV2 = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-8a37d902"]]);
+const TextCornerV2 = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-23417f1a"]]);
 const KIND_ICONS = {
   image: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l5.2-5.2 3.4 3.4 3.2-3.2L21 18"/></svg>`,
   video: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg>`,
@@ -243246,7 +242871,7 @@ const _sfc_main$1 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CustomInputsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-af5c72e0"]]);
+const CustomInputsV2 = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-ec20cf4a"]]);
 const _hoisted_1 = { class: "v2-cio__head" };
 const _hoisted_2 = { class: "v2-cio__title" };
 const _hoisted_3 = ["title"];
@@ -243706,7 +243331,7 @@ const _sfc_main = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const CustomIoPanelV2 = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-f2e48da1"]]);
+const CustomIoPanelV2 = /* @__PURE__ */ _export_sfc(_sfc_main, [["__scopeId", "data-v-08f97e0a"]]);
 const ICON_CUSTOM = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 10h18M9 10v10"/><circle cx="6" cy="7" r=".9" fill="currentColor"/></svg>`;
 const ICON_EXPOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></svg>`;
 const OUTPUT_TYPE = {
@@ -244494,238 +244119,238 @@ const extension = {
 };
 app$1.registerExtension(extension);
 export {
-  LinearSRGBColorSpace as $,
-  AGENT_WS_EVENT_TYPES as A,
-  Bone as B,
-  Camera as C,
-  DOMParser$1 as D,
-  DynamicDrawUsage as E,
-  EditorState as F,
-  EditorView as G,
-  Euler as H,
-  FileLoader as I,
-  Float32BufferAttribute as J,
-  FloatType as K,
-  FocusScope_default as L,
-  Fragment$1 as M,
-  Fragment as N,
-  FrontSide as O,
-  GLSL3 as P,
-  Group as Q,
-  InstancedBufferAttribute as R,
-  InstancedBufferGeometry as S,
-  InterpolateBezier as T,
-  InterpolateDiscrete as U,
-  Line as V,
-  LineBasicMaterial as W,
-  LineSegments as X,
-  LinearFilter as Y,
-  LinearMipMapLinearFilter as Z,
-  LinearMipmapLinearFilter as _,
-  AgentApiError as a,
-  _export_sfc as a$,
-  Loader as a0,
-  LoaderUtils as a1,
-  MathUtils as a2,
-  Matrix2 as a3,
-  Matrix3 as a4,
-  Matrix4 as a5,
-  MenuItem_default as a6,
-  Mesh as a7,
-  MeshBasicMaterial as a8,
-  MeshLambertMaterial as a9,
-  SkinnedMesh as aA,
-  Slice as aB,
-  SliderRange_default as aC,
-  SliderRoot_default as aD,
-  SliderThumb_default as aE,
-  SliderTrack_default as aF,
-  SpotLight as aG,
-  Teleport as aH,
-  TextSelection as aI,
-  Texture as aJ,
-  TextureLoader as aK,
-  TooltipContent_default as aL,
-  TooltipPortal_default as aM,
-  TooltipProvider_default as aN,
-  TooltipRoot_default as aO,
-  TooltipTrigger_default as aP,
-  Triangle as aQ,
-  UnsignedByteType as aR,
-  UnsignedIntType as aS,
-  UnsignedShortType as aT,
-  Vector2 as aU,
-  Vector3 as aV,
-  Vector4 as aW,
-  VectorKeyframeTrack as aX,
-  WebGLArrayRenderTarget as aY,
-  WebGLCubeRenderTarget as aZ,
-  WebGLRenderTarget as a_,
-  MeshPhongMaterial as aa,
-  MeshStandardMaterial as ab,
-  NearestFilter as ac,
-  Object3D as ad,
-  OrthographicCamera as ae,
-  PMREMGenerator as af,
-  PerspectiveCamera as ag,
-  PointLight as ah,
-  Presence_default as ai,
-  Primitive as aj,
-  Quaternion as ak,
-  QuaternionKeyframeTrack as al,
-  REVISION as am,
-  RGBAFormat as an,
-  RGBAIntegerFormat as ao,
-  RGIntegerFormat as ap,
-  RawShaderMaterial as aq,
-  Raycaster as ar,
-  RepeatWrapping as as,
-  SRGBColorSpace as at,
-  Scene as au,
-  Schema as av,
-  ShaderChunk as aw,
-  ShaderMaterial as ax,
-  ShapeUtils as ay,
-  Skeleton as az,
-  AmbientLight as b,
-  redo as b$,
-  agentBusy as b0,
-  api as b1,
+  defineComponent as $,
+  UnsignedShortType as A,
+  BufferGeometry as B,
+  Color as C,
+  DoubleSide as D,
+  Euler as E,
+  FileLoader as F,
+  GLSL3 as G,
+  FloatType as H,
+  InstancedBufferGeometry as I,
+  InstancedBufferAttribute as J,
+  DynamicDrawUsage as K,
+  Loader as L,
+  Mesh as M,
+  NearestFilter as N,
+  OrthographicCamera as O,
+  PMREMGenerator as P,
+  Quaternion as Q,
+  RGBAFormat as R,
+  SRGBColorSpace as S,
+  REVISION as T,
+  UnsignedByteType as U,
+  Vector3 as V,
+  WebGLCubeRenderTarget as W,
+  RawShaderMaterial as X,
+  ShaderChunk as Y,
+  Texture as Z,
+  Data3DTexture as _,
+  BufferAttribute as a,
+  guardReactiveProps as a$,
+  openBlock as a0,
+  createElementBlock as a1,
+  createBaseVNode as a2,
+  toDisplayString$1 as a3,
+  onMounted as a4,
+  onBeforeUnmount as a5,
+  createBlock as a6,
+  createCommentVNode as a7,
+  Fragment$1 as a8,
+  withModifiers as a9,
+  Line as aA,
+  LineSegments as aB,
+  RepeatWrapping as aC,
+  ClampToEdgeWrapping as aD,
+  LoaderUtils as aE,
+  Scene as aF,
+  TextureLoader as aG,
+  useVModel as aH,
+  toRefs as aI,
+  useForwardExpose as aJ,
+  withCtx as aK,
+  renderSlot as aL,
+  unref as aM,
+  Primitive as aN,
+  createContext as aO,
+  useId as aP,
+  ref as aQ,
+  watch as aR,
+  nextTick as aS,
+  useEventListener as aT,
+  createVNode as aU,
+  mergeProps as aV,
+  Presence_default as aW,
+  injectPopperContentContext as aX,
+  normalizeStyle as aY,
+  useEmitAsProps as aZ,
+  normalizeProps as a_,
+  Teleport as aa,
+  computed as ab,
+  DataTextureLoader as ac,
+  LinearMipmapLinearFilter as ad,
+  MathUtils as ae,
+  ColorManagement as af,
+  VectorKeyframeTrack as ag,
+  QuaternionKeyframeTrack as ah,
+  InterpolateDiscrete as ai,
+  InterpolateBezier as aj,
+  AnimationClip as ak,
+  MeshBasicMaterial as al,
+  MeshLambertMaterial as am,
+  MeshPhongMaterial as an,
+  FrontSide as ao,
+  AmbientLight as ap,
+  SpotLight as aq,
+  PointLight as ar,
+  DirectionalLight as as,
+  Triangle as at,
+  ShapeUtils as au,
+  Skeleton as av,
+  Bone as aw,
+  Group as ax,
+  LineBasicMaterial as ay,
+  SkinnedMesh as az,
+  Float32BufferAttribute as b,
+  useForwardPropsEmits as b$,
+  MenuItem_default as b0,
+  hostStore as b1,
   app as b2,
-  assetIdOf as b3,
-  autoUpdate as b4,
-  baseKeymap as b5,
-  buildTooltipConfig as b6,
-  closeEaglePicker as b7,
-  closeHistory as b8,
+  parseNodeLocatorId as b3,
+  hostVersion as b4,
+  hostManager as b5,
+  defineStore as b6,
+  useStorage as b7,
+  toValue$2 as b8,
   clsx as b9,
-  injectPopperContentContext as bA,
-  isAgentEvent as bB,
-  isComfyTVAssetDrag as bC,
-  isEagleDrag as bD,
-  isMemoSame as bE,
-  isNodeLocatorId as bF,
-  keymap as bG,
-  mergeModels as bH,
-  mergeProps as bI,
-  newChatRequests as bJ,
-  nextTick as bK,
-  normalizeClass as bL,
-  normalizeProps as bM,
-  normalizeStyle as bN,
-  offset$2 as bO,
-  onBeforeUnmount as bP,
-  onMounted as bQ,
-  onScopeDispose as bR,
-  openAssetPicker as bS,
-  openBlock as bT,
-  openEaglePicker as bU,
-  parseAgentWsEvent as bV,
-  parseNodeId as bW,
-  parseNodeLocatorId as bX,
-  provide as bY,
-  reactiveOmit as bZ,
-  readonly$1 as b_,
-  cn as ba,
-  computed as bb,
-  createAgentRestClient as bc,
-  createBaseVNode as bd,
-  createBlock as be,
-  createCommentVNode as bf,
-  createContext as bg,
-  createElementBlock as bh,
-  createNodeLocatorId as bi,
-  createSlots as bj,
-  createTextVNode as bk,
-  createVNode as bl,
-  defineAsyncComponent as bm,
-  defineComponent as bn,
-  defineStore as bo,
-  droppedComfyTVAssets as bp,
-  droppedEagleAssets as bq,
-  eagleAvailable as br,
-  getCurrentScope as bs,
-  guardReactiveProps as bt,
-  history as bu,
-  hostManager as bv,
-  hostStore as bw,
-  hostVersion as bx,
-  i18n as by,
-  inject as bz,
-  AnimationClip as c,
-  ref as c0,
-  renderList as c1,
-  renderSlot as c2,
-  reportError as c3,
-  resolveDirective as c4,
-  shallowRef as c5,
-  shift$1 as c6,
-  storeToRefs as c7,
-  toAttachment as c8,
-  toDisplayString$1 as c9,
-  useTemplateRef as cA,
-  useTimestamp as cB,
-  useVModel as cC,
-  useWindowSize as cD,
-  useWorkflowStore as cE,
-  vModelText as cF,
-  watch as cG,
-  watchDebounced as cH,
-  whenever as cI,
-  withCtx as cJ,
-  withDirectives as cK,
-  withKeys as cL,
-  withModifiers as cM,
-  zAgentAdmissionError as cN,
-  zDisownedWorkflowError as cO,
+  redo as bA,
+  undo as bB,
+  baseKeymap as bC,
+  EditorView as bD,
+  DOMParser$1 as bE,
+  Slice as bF,
+  Fragment as bG,
+  closeHistory as bH,
+  Decoration as bI,
+  DecorationSet as bJ,
+  TextSelection as bK,
+  EditorState as bL,
+  shallowRef as bM,
+  storeToRefs as bN,
+  useAgentRunModeStore as bO,
+  useId$1 as bP,
+  resolveDirective as bQ,
+  buildTooltipConfig as bR,
+  DropdownMenuRadioGroup_default as bS,
+  DropdownMenuRadioItem_default as bT,
+  reportError as bU,
+  inject as bV,
+  isMemoSame as bW,
+  useClipboard as bX,
+  watchDebounced as bY,
+  api as bZ,
+  reactiveOmit as b_,
+  normalizeClass as ba,
+  cn as bb,
+  useModel as bc,
+  useTemplateRef as bd,
+  withDirectives as be,
+  vModelText as bf,
+  mergeModels as bg,
+  _export_sfc as bh,
+  TooltipProvider_default as bi,
+  TooltipRoot_default as bj,
+  TooltipTrigger_default as bk,
+  TooltipPortal_default as bl,
+  TooltipContent_default as bm,
+  createTextVNode as bn,
+  useI18n as bo,
+  renderList as bp,
+  DropdownMenuRoot_default as bq,
+  DropdownMenuTrigger_default as br,
+  DropdownMenuPortal_default as bs,
+  DropdownMenuContent_default as bt,
+  getCurrentScope as bu,
+  onScopeDispose as bv,
+  Schema as bw,
+  isNodeLocatorId as bx,
+  history as by,
+  keymap as bz,
+  Vector2 as c,
+  SliderRoot_default as c0,
+  SliderTrack_default as c1,
+  SliderRange_default as c2,
+  SliderThumb_default as c3,
+  useMediaControls as c4,
+  whenever as c5,
+  toRef$1 as c6,
+  defineAsyncComponent as c7,
+  useLocalStorage as c8,
+  useWorkflowStore as c9,
+  agentBusy as cA,
+  provide as cB,
+  eagleAvailable as cC,
+  openEaglePicker as cD,
+  closeEaglePicker as cE,
+  openAssetPicker as cF,
+  isComfyTVAssetDrag as cG,
+  isEagleDrag as cH,
+  droppedEagleAssets as cI,
+  droppedComfyTVAssets as cJ,
+  uploadToLibrary as cK,
+  toAttachment as cL,
+  createAgentRestClient as cM,
+  assetIdOf as cN,
+  readonly$1 as cO,
   toRaw as ca,
-  toRef$1 as cb,
-  toRefs as cc,
-  toTurnId as cd,
-  toValue$2 as ce,
-  undo as cf,
-  unref as cg,
-  uploadToLibrary as ch,
-  useAgentPanelStore as ci,
-  useAgentRunModeStore as cj,
-  useClipboard as ck,
-  useClipboardItems as cl,
-  useElementBounding as cm,
-  useEmitAsProps as cn,
-  useEventListener as co,
-  useFloating as cp,
-  useForwardExpose as cq,
-  useForwardPropsEmits as cr,
-  useI18n as cs,
-  useId as ct,
-  useId$1 as cu,
-  useIntersectionObserver as cv,
-  useLocalStorage as cw,
-  useMediaControls as cx,
-  useModel as cy,
-  useStorage as cz,
-  Box3 as d,
-  BufferAttribute as e,
-  BufferGeometry as f,
-  ClampToEdgeWrapping as g,
-  Clock as h,
-  Color as i,
-  ColorManagement as j,
-  CubeCamera as k,
-  DOMSerializer as l,
-  Data3DTexture as m,
+  useAgentPanelStore as cb,
+  DOMSerializer as cc,
+  useClipboardItems as cd,
+  withKeys as ce,
+  useIntersectionObserver as cf,
+  createSlots as cg,
+  createNodeLocatorId as ch,
+  useElementBounding as ci,
+  useFloating as cj,
+  autoUpdate as ck,
+  FocusScope_default as cl,
+  offset$2 as cm,
+  shift$1 as cn,
+  useWindowSize as co,
+  i18n as cp,
+  AgentApiError as cq,
+  toTurnId as cr,
+  isAgentEvent as cs,
+  parseAgentWsEvent as ct,
+  zDisownedWorkflowError as cu,
+  zAgentAdmissionError as cv,
+  AGENT_WS_EVENT_TYPES as cw,
+  useTimestamp as cx,
+  parseNodeId as cy,
+  newChatRequests as cz,
+  Matrix4 as d,
+  ShaderMaterial as e,
+  Clock as f,
+  Vector4 as g,
+  Matrix2 as h,
+  LinearMipMapLinearFilter as i,
+  CubeCamera as j,
+  MeshStandardMaterial as k,
+  WebGLRenderTarget as l,
+  PerspectiveCamera as m,
   DataArrayTexture as n,
-  DataTexture as o,
-  DataTextureLoader as p,
-  Decoration as q,
-  DecorationSet as r,
-  DirectionalLight as s,
-  DoubleSide as t,
-  DropdownMenuContent_default as u,
-  DropdownMenuPortal_default as v,
-  DropdownMenuRadioGroup_default as w,
-  DropdownMenuRadioItem_default as x,
-  DropdownMenuRoot_default as y,
-  DropdownMenuTrigger_default as z
+  RGIntegerFormat as o,
+  UnsignedIntType as p,
+  RGBAIntegerFormat as q,
+  WebGLArrayRenderTarget as r,
+  DataTexture as s,
+  Raycaster as t,
+  Object3D as u,
+  Matrix3 as v,
+  LinearSRGBColorSpace as w,
+  LinearFilter as x,
+  Camera as y,
+  Box3 as z
 };
-//# sourceMappingURL=main-DNzh1NpN.mjs.map
+//# sourceMappingURL=main-BqnENbPf.mjs.map

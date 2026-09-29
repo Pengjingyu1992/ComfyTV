@@ -352,6 +352,14 @@ const ilog = (x) => {
   }
   return ret;
 };
+const popcount = (value) => {
+  let count = 0;
+  while (value !== 0) {
+    value &= value - 1;
+    count++;
+  }
+  return count;
+};
 const ISO_639_2_REGEX = /^[a-z]{3}$/;
 const isIso639Dash2LanguageCode = (x) => {
   return ISO_639_2_REGEX.test(x);
@@ -494,6 +502,20 @@ const getChromiumVersion = () => {
     return null;
   }
   return chromiumVersionCache = Number(match[1]);
+};
+const missingWebCodecsClassMessage = (className) => {
+  if (typeof globalThis.isSecureContext !== "undefined" && !globalThis.isSecureContext) {
+    return `${className} is not available in this environment; this may be because this page is running in an insecure context. Try serving your page over HTTPS or use localhost.`;
+  }
+  return `${className} is not available in this environment.`;
+};
+const NativePromiseConstructor = (async () => {
+})().constructor;
+const isThenable = (value) => {
+  if (value instanceof NativePromiseConstructor || value instanceof Promise) {
+    return true;
+  }
+  return typeof (value == null ? void 0 : value.then) === "function";
 };
 const coalesceIndex = (a, b) => {
   return a !== -1 ? a : b;
@@ -1179,71 +1201,127 @@ const parseAacAudioSpecificConfig = (bytes2) => {
     throw new TypeError("AAC description must be at least 2 bytes long.");
   }
   const bitstream = new Bitstream(bytes2);
-  let objectType = bitstream.readBits(5);
-  if (objectType === 31) {
-    objectType = 32 + bitstream.readBits(6);
-  }
-  const frequencyIndex = bitstream.readBits(4);
-  let sampleRate = null;
-  if (frequencyIndex === 15) {
-    sampleRate = bitstream.readBits(24);
-  } else {
-    if (frequencyIndex < aacFrequencyTable.length) {
-      sampleRate = aacFrequencyTable[frequencyIndex];
-    }
-  }
+  const objectType = readAacObjectType(bitstream);
+  const { frequencyIndex, sampleRate } = readAacSamplingFrequency(bitstream);
   const channelConfiguration = bitstream.readBits(4);
   let numberOfChannels = null;
   if (channelConfiguration >= 1 && channelConfiguration <= 7) {
     numberOfChannels = aacChannelMap[channelConfiguration];
   }
+  let coreObjectType = objectType;
+  let psPresent = false;
+  let outputSampleRate = sampleRate;
+  if (objectType === 5 || objectType === 29) {
+    psPresent = objectType === 29;
+    outputSampleRate = readAacSamplingFrequency(bitstream).sampleRate;
+    coreObjectType = readAacObjectType(bitstream);
+    if (coreObjectType === 22) {
+      bitstream.skipBits(4);
+    }
+  } else {
+    while (bitstream.getBitsLeft() > 15) {
+      const searchStart = bitstream.pos;
+      if (bitstream.readBits(11) !== 695) {
+        bitstream.pos = searchStart + 1;
+        continue;
+      }
+      if (readAacObjectType(bitstream) === 5 && bitstream.readBits(1)) {
+        outputSampleRate = readAacSamplingFrequency(bitstream).sampleRate;
+        if (bitstream.getBitsLeft() > 11 && bitstream.readBits(11) === 1352) {
+          psPresent = !!bitstream.readBits(1);
+        }
+      }
+      break;
+    }
+  }
+  if (numberOfChannels !== null && numberOfChannels > 1) {
+    psPresent = false;
+  }
   return {
     objectType,
+    coreObjectType,
     frequencyIndex,
-    sampleRate,
     channelConfiguration,
-    numberOfChannels
+    outputSampleRate,
+    outputNumberOfChannels: psPresent && numberOfChannels === 1 ? 2 : numberOfChannels
+  };
+};
+const readAacObjectType = (bitstream) => {
+  const objectType = bitstream.readBits(5);
+  return objectType === 31 ? 32 + bitstream.readBits(6) : objectType;
+};
+const readAacSamplingFrequency = (bitstream) => {
+  const frequencyIndex = bitstream.readBits(4);
+  if (frequencyIndex === 15) {
+    return {
+      frequencyIndex,
+      sampleRate: bitstream.readBits(24)
+    };
+  }
+  return {
+    frequencyIndex,
+    sampleRate: frequencyIndex < aacFrequencyTable.length ? aacFrequencyTable[frequencyIndex] : null
   };
 };
 const buildAacAudioSpecificConfig = (config) => {
-  let frequencyIndex = aacFrequencyTable.indexOf(config.sampleRate);
-  let customSampleRate = null;
-  if (frequencyIndex === -1) {
-    frequencyIndex = 15;
-    customSampleRate = config.sampleRate;
-  }
-  const channelConfiguration = aacChannelMap.indexOf(config.numberOfChannels);
+  const usesSbr = config.objectType === 5 || config.objectType === 29;
+  const usesPs = config.objectType === 29;
+  const coreSampleRate = usesSbr ? config.outputSampleRate / 2 : config.outputSampleRate;
+  const coreNumberOfChannels = usesPs ? 1 : config.outputNumberOfChannels;
+  const channelConfiguration = aacChannelMap.indexOf(coreNumberOfChannels);
   if (channelConfiguration === -1) {
-    throw new TypeError(`Unsupported number of channels: ${config.numberOfChannels}`);
+    throw new TypeError(`Unsupported number of channels: ${config.outputNumberOfChannels}`);
   }
-  let bitCount = 5 + 4 + 4;
+  let bitCount = 5 + 4 + 4 + 3;
   if (config.objectType >= 32) {
     bitCount += 6;
   }
-  if (frequencyIndex === 15) {
+  if (findAacFrequencyIndex(coreSampleRate) === 15) {
     bitCount += 24;
+  }
+  if (usesSbr) {
+    bitCount += 4 + 5;
+    if (findAacFrequencyIndex(config.outputSampleRate) === 15) {
+      bitCount += 24;
+    }
   }
   const byteCount = Math.ceil(bitCount / 8);
   const bytes2 = new Uint8Array(byteCount);
   const bitstream = new Bitstream(bytes2);
-  if (config.objectType < 32) {
-    bitstream.writeBits(5, config.objectType);
+  writeAacObjectType(bitstream, config.objectType);
+  writeAacSamplingFrequency(bitstream, coreSampleRate);
+  bitstream.writeBits(4, channelConfiguration);
+  if (usesSbr) {
+    writeAacSamplingFrequency(bitstream, config.outputSampleRate);
+    writeAacObjectType(bitstream, 2);
+  }
+  bitstream.writeBits(3, 0);
+  return bytes2;
+};
+const writeAacObjectType = (bitstream, objectType) => {
+  if (objectType < 32) {
+    bitstream.writeBits(5, objectType);
   } else {
     bitstream.writeBits(5, 31);
-    bitstream.writeBits(6, config.objectType - 32);
+    bitstream.writeBits(6, objectType - 32);
   }
+};
+const writeAacSamplingFrequency = (bitstream, sampleRate) => {
+  const frequencyIndex = findAacFrequencyIndex(sampleRate);
   bitstream.writeBits(4, frequencyIndex);
   if (frequencyIndex === 15) {
-    bitstream.writeBits(24, customSampleRate);
+    bitstream.writeBits(24, sampleRate);
   }
-  bitstream.writeBits(4, channelConfiguration);
-  return bytes2;
+};
+const findAacFrequencyIndex = (sampleRate) => {
+  const index = aacFrequencyTable.indexOf(sampleRate);
+  return index === -1 ? 15 : index;
 };
 const buildAdtsHeaderTemplate = (config) => {
   const header = new Uint8Array(7);
   const bitstream = new Bitstream(header);
-  const { objectType, frequencyIndex, channelConfiguration } = config;
-  const profile = objectType - 1;
+  const { coreObjectType, frequencyIndex, channelConfiguration } = config;
+  const profile = coreObjectType - 1;
   bitstream.writeBits(12, 4095);
   bitstream.writeBits(1, 0);
   bitstream.writeBits(2, 0);
@@ -1304,7 +1382,8 @@ const NON_PCM_AUDIO_CODECS = [
   "vorbis",
   "flac",
   "ac3",
-  "eac3"
+  "eac3",
+  "dts"
 ];
 const AUDIO_CODECS = [
   ...NON_PCM_AUDIO_CODECS,
@@ -1492,6 +1571,16 @@ const PRORES_FOURCCS = [
   // ProRes 422 LT
   "apco"
   // ProRes 422 Proxy
+];
+const DTS_FOURCCS = [
+  "dtsc",
+  // DTS core
+  "dtsh",
+  // DTS-HD, core plus extension substreams
+  "dtsl",
+  // DTS-HD Lossless, no core
+  "dtse"
+  // DTS Express
 ];
 const PRORES_PROFILE_TARGET_BITRATES = [
   { fourCc: "apco", bitrate: 45e6, alpha: false },
@@ -1751,13 +1840,15 @@ const buildAudioCodecString = (codec, numberOfChannels, sampleRate) => {
     return "ac-3";
   } else if (codec === "eac3") {
     return "ec-3";
+  } else if (codec === "dts") {
+    return "dtsc";
   } else if (PCM_AUDIO_CODECS.includes(codec)) {
     return codec;
   }
   throw new TypeError(`Unhandled codec '${codec}'.`);
 };
 const extractAudioCodecString = (trackInfo) => {
-  const { codec, codecDescription, aacCodecInfo } = trackInfo;
+  const { codec, codecDescription, aacCodecInfo, dtsFormat } = trackInfo;
   if (codec === "aac") {
     if (!aacCodecInfo) {
       throw new TypeError("AAC codec info must be provided.");
@@ -1786,6 +1877,8 @@ const extractAudioCodecString = (trackInfo) => {
     return "ac-3";
   } else if (codec === "eac3") {
     return "ec-3";
+  } else if (codec === "dts") {
+    return dtsFormat ?? "dtsc";
   } else if (codec && PCM_AUDIO_CODECS.includes(codec)) {
     return codec;
   }
@@ -1869,6 +1962,8 @@ const inferCodecFromCodecString = (codecString) => {
     return "ac3";
   } else if (codecString === "ec-3" || codecString === "eac3") {
     return "eac3";
+  } else if (DTS_FOURCCS.includes(codecString)) {
+    return "dts";
   } else if (codecString === "ulaw") {
     return "ulaw";
   } else if (codecString === "alaw") {
@@ -2020,7 +2115,8 @@ const VALID_AUDIO_CODEC_STRING_PREFIXES = [
   "alaw",
   "pcm",
   "ac-3",
-  "ec-3"
+  "ec-3",
+  "dts"
 ];
 const validateAudioChunkMetadata = (metadata, trackCodec) => {
   if (!metadata) {
@@ -2090,6 +2186,10 @@ const validateAudioChunkMetadata = (metadata, trackCodec) => {
   } else if (metadata.decoderConfig.codec.startsWith("ec-3") || metadata.decoderConfig.codec.startsWith("eac3")) {
     if (metadata.decoderConfig.codec !== "ec-3") {
       throw new TypeError('Audio chunk metadata decoder configuration codec string for EC-3 must be "ec-3".');
+    }
+  } else if (metadata.decoderConfig.codec.startsWith("dts")) {
+    if (!DTS_FOURCCS.includes(metadata.decoderConfig.codec)) {
+      throw new TypeError(`Audio chunk metadata decoder configuration codec string for DTS must be one of the following four-character codes: ${DTS_FOURCCS.join(", ")}.`);
     }
   } else if (metadata.decoderConfig.codec.startsWith("pcm") || metadata.decoderConfig.codec.startsWith("ulaw") || metadata.decoderConfig.codec.startsWith("alaw")) {
     if (!PCM_AUDIO_CODECS.includes(metadata.decoderConfig.codec)) {
@@ -4746,6 +4846,365 @@ const getEac3ChannelCount = (config) => {
   }
   return channels;
 };
+const DTS_EXSS_SYNC_WORD = 1683496997;
+const DTS_CORE_FRAME_HEADER_SIZE = 18;
+const DTS_EXSS_HEADER_PREFIX_SIZE = 10;
+const DTS_EXSS_MAX_HEADER_SIZE = 4096;
+const DTS_PCM_BLOCK_SAMPLES = 32;
+const DTS_SPECIFIC_BOX_SIZE = 20;
+const DTS_SUBBAND_SAMPLES = 8;
+const DTS_CORE_SAMPLE_RATES = [
+  0,
+  8e3,
+  16e3,
+  32e3,
+  0,
+  0,
+  11025,
+  22050,
+  44100,
+  0,
+  0,
+  12e3,
+  24e3,
+  48e3,
+  96e3,
+  192e3
+];
+const DTS_CORE_BIT_RATES = [
+  32e3,
+  56e3,
+  64e3,
+  96e3,
+  112e3,
+  128e3,
+  192e3,
+  224e3,
+  256e3,
+  32e4,
+  384e3,
+  448e3,
+  512e3,
+  576e3,
+  64e4,
+  768e3,
+  96e4,
+  1024e3,
+  1152e3,
+  128e4,
+  1344e3,
+  1408e3,
+  1411200,
+  1472e3,
+  1536e3,
+  192e4,
+  2048e3,
+  3072e3,
+  384e4,
+  0,
+  0,
+  0
+];
+const DTS_PCM_RESOLUTIONS = [16, 16, 20, 20, 0, 24, 24, 0];
+const DTS_AMODE_CHANNEL_COUNTS = [1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 6, 6, 6, 7, 8, 8];
+const DTS_AMODE_CHANNEL_LAYOUTS = [
+  1,
+  2,
+  2,
+  2,
+  2,
+  3,
+  18,
+  19,
+  6,
+  7,
+  518,
+  323,
+  83,
+  519,
+  582,
+  535
+];
+const DTS_CHANNEL_LAYOUT_LFE1 = 8;
+const DTS_CHANNEL_LAYOUT_PAIR_MASK = 44646;
+const DTS_EXSS_REF_CLOCKS = [32e3, 44100, 48e3, 0];
+const DTS_EXSS_SAMPLE_RATES = [
+  8e3,
+  16e3,
+  32e3,
+  64e3,
+  128e3,
+  22050,
+  44100,
+  88200,
+  176400,
+  352800,
+  12e3,
+  24e3,
+  48e3,
+  96e3,
+  192e3,
+  384e3
+];
+const DTS_SPECIFIC_BOX_FRAME_DURATIONS = [512, 1024, 2048, 4096];
+const parseDtsFrame = (data) => {
+  const core = parseDtsCoreFrameHeader(data);
+  const view2 = toDataView(data);
+  let offset = core ? Math.ceil(core.frameSize / 4) * 4 : 0;
+  let firstExss = null;
+  while (offset + 4 <= data.length && view2.getUint32(offset) === DTS_EXSS_SYNC_WORD) {
+    const exss = parseDtsExssHeader(data.subarray(offset));
+    if (!exss) {
+      break;
+    }
+    firstExss ?? (firstExss = exss);
+    offset += exss.frameSize;
+  }
+  if (core) {
+    return {
+      frameSize: firstExss ? offset : core.frameSize,
+      sampleRate: core.sampleRate,
+      numberOfChannels: core.numberOfChannels,
+      sampleCount: core.sampleCount,
+      channelLayout: core.channelLayout,
+      pcmResolution: core.pcmResolution,
+      bitRate: core.bitRate,
+      core,
+      hasExtensions: firstExss !== null
+    };
+  }
+  if (!(firstExss == null ? void 0 : firstExss.asset)) {
+    return null;
+  }
+  const { asset } = firstExss;
+  return {
+    frameSize: offset,
+    sampleRate: asset.sampleRate,
+    numberOfChannels: asset.numberOfChannels,
+    sampleCount: asset.sampleCount,
+    channelLayout: asset.channelLayout,
+    pcmResolution: asset.pcmResolution,
+    bitRate: 0,
+    core: null,
+    hasExtensions: true
+  };
+};
+const extractDtsFourCcFromPacket = (data) => {
+  const frameInfo = parseDtsFrame(data);
+  if (!(frameInfo == null ? void 0 : frameInfo.core)) {
+    return null;
+  }
+  return frameInfo.hasExtensions ? "dtsh" : "dtsc";
+};
+const parseDtsCoreFrameHeader = (data) => {
+  if (data.length < DTS_CORE_FRAME_HEADER_SIZE) {
+    return null;
+  }
+  if (data[0] !== 127 || data[1] !== 254 || data[2] !== 128 || data[3] !== 1) {
+    return null;
+  }
+  const bitstream = new Bitstream(data);
+  bitstream.skipBits(32);
+  bitstream.skipBits(1);
+  if (bitstream.readBits(5) !== DTS_PCM_BLOCK_SAMPLES - 1) {
+    return null;
+  }
+  const cpf = bitstream.readBits(1);
+  const npcmblocks = bitstream.readBits(7) + 1;
+  if (npcmblocks % DTS_SUBBAND_SAMPLES !== 0) {
+    return null;
+  }
+  const frameSize = bitstream.readBits(14) + 1;
+  if (frameSize < 96) {
+    return null;
+  }
+  const amode = bitstream.readBits(6);
+  if (amode >= DTS_AMODE_CHANNEL_COUNTS.length) {
+    return null;
+  }
+  const sampleRate = DTS_CORE_SAMPLE_RATES[bitstream.readBits(4)];
+  if (sampleRate === 0) {
+    return null;
+  }
+  const bitRate = DTS_CORE_BIT_RATES[bitstream.readBits(5)];
+  if (bitstream.readBits(1) !== 0) {
+    return null;
+  }
+  bitstream.skipBits(1 + 1 + 1 + 1);
+  bitstream.skipBits(3 + 1 + 1);
+  const lff = bitstream.readBits(2);
+  if (lff === 3) {
+    return null;
+  }
+  bitstream.skipBits(1);
+  if (cpf) {
+    bitstream.skipBits(16);
+  }
+  bitstream.skipBits(1 + 4 + 2);
+  const pcmResolution = DTS_PCM_RESOLUTIONS[bitstream.readBits(3)];
+  if (pcmResolution === 0) {
+    return null;
+  }
+  const lfePresent = lff !== 0;
+  return {
+    frameSize,
+    sampleRate,
+    numberOfChannels: DTS_AMODE_CHANNEL_COUNTS[amode] + (lfePresent ? 1 : 0),
+    sampleCount: npcmblocks * DTS_PCM_BLOCK_SAMPLES,
+    channelLayout: DTS_AMODE_CHANNEL_LAYOUTS[amode] | (lfePresent ? DTS_CHANNEL_LAYOUT_LFE1 : 0),
+    amode,
+    lfePresent,
+    bitRate,
+    pcmResolution
+  };
+};
+const parseDtsExssHeader = (data) => {
+  if (data.length < DTS_EXSS_HEADER_PREFIX_SIZE) {
+    return null;
+  }
+  if (data[0] !== 100 || data[1] !== 88 || data[2] !== 32 || data[3] !== 37) {
+    return null;
+  }
+  const bitstream = new Bitstream(data);
+  bitstream.skipBits(32);
+  bitstream.skipBits(8);
+  const extSsIndex = bitstream.readBits(2);
+  const wideHeader = bitstream.readBits(1);
+  const headerSizeBits = 8 + 4 * wideHeader;
+  const frameSizeBits = 16 + 4 * wideHeader;
+  bitstream.skipBits(headerSizeBits);
+  const frameSize = bitstream.readBits(frameSizeBits) + 1;
+  const incomplete = { frameSize, asset: null };
+  if (!bitstream.readBits(1)) {
+    return incomplete;
+  }
+  const refClock = DTS_EXSS_REF_CLOCKS[bitstream.readBits(2)];
+  const frameDurationCycles = 512 * (bitstream.readBits(3) + 1);
+  if (bitstream.readBits(1)) {
+    bitstream.skipBits(32 + 4);
+  }
+  const numAudioPresentations = bitstream.readBits(3) + 1;
+  const numAssets = bitstream.readBits(3) + 1;
+  const activeExssMasks = [];
+  for (let i = 0; i < numAudioPresentations; i++) {
+    activeExssMasks.push(bitstream.readBits(extSsIndex + 1));
+  }
+  for (const mask of activeExssMasks) {
+    bitstream.skipBits(8 * popcount(mask));
+  }
+  if (bitstream.readBits(1)) {
+    bitstream.skipBits(2);
+    const spkrMaskBits = bitstream.readBits(2) + 1 << 2;
+    const numMixOutConfigs = bitstream.readBits(2) + 1;
+    bitstream.skipBits(numMixOutConfigs * spkrMaskBits);
+  }
+  for (let i = 0; i < numAssets; i++) {
+    bitstream.skipBits(frameSizeBits);
+  }
+  bitstream.skipBits(9);
+  bitstream.skipBits(3);
+  if (bitstream.readBits(1)) {
+    bitstream.skipBits(4);
+  }
+  if (bitstream.readBits(1)) {
+    bitstream.skipBits(24);
+  }
+  if (bitstream.readBits(1)) {
+    bitstream.skipBits(8 * (bitstream.readBits(10) + 1));
+  }
+  const pcmResolution = bitstream.readBits(5) + 1;
+  const sampleRate = DTS_EXSS_SAMPLE_RATES[bitstream.readBits(4)];
+  const numberOfChannels = bitstream.readBits(8) + 1;
+  let channelLayout = 0;
+  if (bitstream.readBits(1)) {
+    if (numberOfChannels > 2) {
+      bitstream.skipBits(1);
+    }
+    if (numberOfChannels > 6) {
+      bitstream.skipBits(1);
+    }
+    if (bitstream.readBits(1)) {
+      const spkrMaskBits = bitstream.readBits(2) + 1 << 2;
+      channelLayout = bitstream.readBits(spkrMaskBits);
+    }
+  }
+  if (refClock === 0 || bitstream.getBitsLeft() < 0) {
+    return incomplete;
+  }
+  return {
+    frameSize,
+    asset: {
+      sampleRate,
+      numberOfChannels,
+      sampleCount: Math.round(frameDurationCycles * sampleRate / refClock),
+      channelLayout,
+      pcmResolution
+    }
+  };
+};
+const parseDtsSpecificBox = (data) => {
+  if (data.length < DTS_SPECIFIC_BOX_SIZE) {
+    return null;
+  }
+  const view2 = toDataView(data);
+  const sampleRate = view2.getUint32(0);
+  if (sampleRate === 0) {
+    return null;
+  }
+  const bitstream = new Bitstream(data);
+  bitstream.seekToByte(13);
+  const frameDuration = bitstream.readBits(2);
+  bitstream.skipBits(5);
+  const coreLfePresent = bitstream.readBits(1);
+  const coreLayout = bitstream.readBits(6);
+  bitstream.skipBits(14);
+  bitstream.skipBits(1);
+  bitstream.skipBits(3);
+  const channelLayout = bitstream.readBits(16);
+  let numberOfChannels = null;
+  if (channelLayout !== 0) {
+    numberOfChannels = getDtsChannelCount(channelLayout);
+  } else if (coreLayout < DTS_AMODE_CHANNEL_COUNTS.length) {
+    numberOfChannels = DTS_AMODE_CHANNEL_COUNTS[coreLayout] + coreLfePresent;
+  }
+  return {
+    sampleRate,
+    maxBitrate: view2.getUint32(4),
+    avgBitrate: view2.getUint32(8),
+    pcmSampleDepth: data[12],
+    sampleCount: DTS_SPECIFIC_BOX_FRAME_DURATIONS[frameDuration],
+    channelLayout,
+    numberOfChannels
+  };
+};
+const buildDtsSpecificBox = (frameInfo) => {
+  var _a, _b;
+  const bytes2 = new Uint8Array(DTS_SPECIFIC_BOX_SIZE);
+  const view2 = toDataView(bytes2);
+  view2.setUint32(0, frameInfo.sampleRate);
+  view2.setUint32(4, frameInfo.bitRate);
+  view2.setUint32(8, frameInfo.bitRate);
+  bytes2[12] = frameInfo.pcmResolution;
+  const streamConstruction = frameInfo.core && !frameInfo.hasExtensions ? 1 : 0;
+  const bitstream = new Bitstream(bytes2);
+  bitstream.seekToByte(13);
+  bitstream.writeBits(2, Math.max(DTS_SPECIFIC_BOX_FRAME_DURATIONS.indexOf(frameInfo.sampleCount), 0));
+  bitstream.writeBits(5, streamConstruction);
+  bitstream.writeBits(1, ((_a = frameInfo.core) == null ? void 0 : _a.lfePresent) ? 1 : 0);
+  bitstream.writeBits(6, ((_b = frameInfo.core) == null ? void 0 : _b.amode) ?? 0);
+  bitstream.writeBits(14, frameInfo.core ? frameInfo.core.frameSize - 1 : 0);
+  bitstream.writeBits(1, 0);
+  bitstream.writeBits(3, 0);
+  bitstream.writeBits(16, frameInfo.channelLayout);
+  bitstream.writeBits(1, 0);
+  bitstream.writeBits(1, 0);
+  bitstream.writeBits(1, 0);
+  bitstream.writeBits(5, 0);
+  return bytes2;
+};
+const getDtsChannelCount = (channelLayout) => {
+  return popcount(channelLayout) + popcount(channelLayout & DTS_CHANNEL_LAYOUT_PAIR_MASK);
+};
 /*!
  * Copyright (c) 2026-present, Vanilagy and contributors
  *
@@ -4838,7 +5297,7 @@ class EncodedPacket {
       throw new TypeError("Metadata-only packets cannot be converted to a video chunk.");
     }
     if (typeof EncodedVideoChunk === "undefined") {
-      throw new Error("Your browser does not support EncodedVideoChunk.");
+      throw new Error("EncodedVideoChunk is not available in this environment.");
     }
     return new EncodedVideoChunk({
       data: this.data,
@@ -4860,7 +5319,7 @@ class EncodedPacket {
       throw new TypeError("Metadata-only packets cannot be converted to a video chunk.");
     }
     if (typeof EncodedVideoChunk === "undefined") {
-      throw new Error("Your browser does not support EncodedVideoChunk.");
+      throw new Error("EncodedVideoChunk is not available in this environment.");
     }
     return new EncodedVideoChunk({
       data: this.sideData.alpha,
@@ -4877,7 +5336,7 @@ class EncodedPacket {
       throw new TypeError("Metadata-only packets cannot be converted to an audio chunk.");
     }
     if (typeof EncodedAudioChunk === "undefined") {
-      throw new Error("Your browser does not support EncodedAudioChunk.");
+      throw new Error("EncodedAudioChunk is not available in this environment.");
     }
     return new EncodedAudioChunk({
       data: this.data,
@@ -5197,7 +5656,7 @@ const createAes128CbcDecryptStream = (reader, getInit, close) => {
       }
       const requestedLength = CHUNK_SIZE + BLOCK_SIZE;
       let nextSlice = reader.requestSliceRange(pos, 0, requestedLength);
-      if (nextSlice instanceof Promise)
+      if (isThenable(nextSlice))
         nextSlice = await nextSlice;
       if (!nextSlice || nextSlice.length === 0) {
         throw new Error("Invalid ciphertext.");
@@ -5292,7 +5751,7 @@ class IsobmffDemuxer extends Demuxer {
       let foundMovieBoxes = false;
       while (true) {
         let slice = this.reader.requestSliceRange(currentPos, MIN_BOX_HEADER_SIZE, MAX_BOX_HEADER_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         if (!slice)
           break;
@@ -5306,7 +5765,7 @@ class IsobmffDemuxer extends Demuxer {
           this.isQuickTime = majorBrand === "qt  ";
         } else if (boxInfo.name === "moov") {
           let moovSlice = this.reader.requestSlice(slice.filePos, boxInfo.contentSize);
-          if (moovSlice instanceof Promise)
+          if (isThenable(moovSlice))
             moovSlice = await moovSlice;
           if (!moovSlice)
             break;
@@ -5336,20 +5795,20 @@ class IsobmffDemuxer extends Demuxer {
       if (lookForMfraBox) {
         assert(this.reader.fileSize !== null);
         let lastWordSlice = this.reader.requestSlice(this.reader.fileSize - 4, 4);
-        if (lastWordSlice instanceof Promise)
+        if (isThenable(lastWordSlice))
           lastWordSlice = await lastWordSlice;
         assert(lastWordSlice);
         const lastWord = readU32Be(lastWordSlice);
         const potentialMfraPos = this.reader.fileSize - lastWord;
         if (potentialMfraPos >= 0 && potentialMfraPos <= this.reader.fileSize - MAX_BOX_HEADER_SIZE) {
           let mfraHeaderSlice = this.reader.requestSliceRange(potentialMfraPos, MIN_BOX_HEADER_SIZE, MAX_BOX_HEADER_SIZE);
-          if (mfraHeaderSlice instanceof Promise)
+          if (isThenable(mfraHeaderSlice))
             mfraHeaderSlice = await mfraHeaderSlice;
           if (mfraHeaderSlice) {
             const boxInfo = readBoxHeader(mfraHeaderSlice);
             if (boxInfo && boxInfo.name === "mfra") {
               let mfraSlice = this.reader.requestSlice(mfraHeaderSlice.filePos, boxInfo.contentSize);
-              if (mfraSlice instanceof Promise)
+              if (isThenable(mfraSlice))
                 mfraSlice = await mfraSlice;
               if (mfraSlice) {
                 this.readContiguousBoxes(mfraSlice);
@@ -5509,13 +5968,13 @@ class IsobmffDemuxer extends Demuxer {
       return this.lastReadFragment;
     }
     let headerSlice = this.reader.requestSliceRange(startPos, MIN_BOX_HEADER_SIZE, MAX_BOX_HEADER_SIZE);
-    if (headerSlice instanceof Promise)
+    if (isThenable(headerSlice))
       headerSlice = await headerSlice;
     assert(headerSlice);
     const moofBoxInfo = readBoxHeader(headerSlice);
     assert((moofBoxInfo == null ? void 0 : moofBoxInfo.name) === "moof");
     let entireSlice = this.reader.requestSlice(startPos, moofBoxInfo.totalSize);
-    if (entireSlice instanceof Promise)
+    if (isThenable(entireSlice))
       entireSlice = await entireSlice;
     assert(entireSlice);
     this.traverseBox(entireSlice);
@@ -5578,7 +6037,7 @@ class IsobmffDemuxer extends Demuxer {
     }
   }
   traverseBox(slice) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O, _P, _Q, _R, _S;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O, _P, _Q, _R, _S, _T;
     const startPos = slice.filePos;
     const boxInfo = readBoxHeader(slice);
     if (!boxInfo) {
@@ -5797,6 +6256,7 @@ class IsobmffDemuxer extends Demuxer {
               codec: null,
               codecDescription: null,
               aacCodecInfo: null,
+              dtsFormat: null,
               pcmLittleEndian: false,
               pcmSampleSize: null
             };
@@ -5907,6 +6367,9 @@ class IsobmffDemuxer extends Demuxer {
                 track.info.codec = "ac3";
               } else if (codecName === "ec-3") {
                 track.info.codec = "eac3";
+              } else if (DTS_FOURCCS.includes(codecName)) {
+                track.info.codec = "dts";
+                track.info.dtsFormat = codecName;
               } else if (codecName === "twos") {
                 if (sampleSize === 8) {
                   track.info.codec = "pcm-s8";
@@ -6091,6 +6554,9 @@ class IsobmffDemuxer extends Demuxer {
             break;
           }
           assert(track.info);
+          if (boxInfo.contentSize === 0) {
+            break;
+          }
           track.info.codecDescription = readBytes(slice, boxInfo.contentSize);
         }
         break;
@@ -6101,6 +6567,9 @@ class IsobmffDemuxer extends Demuxer {
             break;
           }
           assert(track.info);
+          if (boxInfo.contentSize === 0) {
+            break;
+          }
           track.info.codecDescription = readBytes(slice, boxInfo.contentSize);
         }
         break;
@@ -6255,6 +6724,8 @@ class IsobmffDemuxer extends Demuxer {
             track.info.codec = "mp3";
           } else if (objectTypeIndication === 221) {
             track.info.codec = "vorbis";
+          } else if (objectTypeIndication === 169) {
+            track.info.codec = "dts";
           } else {
             Logging._warn(`Unsupported audio codec (objectTypeIndication ${objectTypeIndication}) - discarding track.`);
           }
@@ -6266,11 +6737,11 @@ class IsobmffDemuxer extends Demuxer {
             track.info.codecDescription = readBytes(slice, decoderSpecificInfoLength);
             if (track.info.codec === "aac") {
               const audioSpecificConfig = parseAacAudioSpecificConfig(track.info.codecDescription);
-              if (audioSpecificConfig.numberOfChannels !== null) {
-                track.info.numberOfChannels = audioSpecificConfig.numberOfChannels;
+              if (audioSpecificConfig.outputNumberOfChannels !== null) {
+                track.info.numberOfChannels = audioSpecificConfig.outputNumberOfChannels;
               }
-              if (audioSpecificConfig.sampleRate !== null) {
-                track.info.sampleRate = audioSpecificConfig.sampleRate;
+              if (audioSpecificConfig.outputSampleRate !== null) {
+                track.info.sampleRate = audioSpecificConfig.outputSampleRate;
               }
             }
           }
@@ -6410,6 +6881,25 @@ class IsobmffDemuxer extends Demuxer {
             track.info.sampleRate = sampleRate;
           }
           track.info.numberOfChannels = getEac3ChannelCount(config);
+        }
+        break;
+      case "ddts":
+        {
+          const track = this.currentTrack;
+          if (!track) {
+            break;
+          }
+          assert(((_l = track.info) == null ? void 0 : _l.type) === "audio");
+          const bytes2 = readBytes(slice, Math.min(boxInfo.contentSize, DTS_SPECIFIC_BOX_SIZE));
+          const config = parseDtsSpecificBox(bytes2);
+          if (!config) {
+            Logging._warn("Invalid ddts box contents, ignoring.");
+            break;
+          }
+          track.info.sampleRate = config.sampleRate;
+          if (config.numberOfChannels !== null) {
+            track.info.numberOfChannels = config.numberOfChannels;
+          }
         }
         break;
       case "stts":
@@ -6724,7 +7214,7 @@ class IsobmffDemuxer extends Demuxer {
         break;
       case "pssh":
         {
-          if ((_l = this.input._formatOptions.isobmff) == null ? void 0 : _l._suppressPsshParsing) {
+          if ((_m = this.input._formatOptions.isobmff) == null ? void 0 : _m._suppressPsshParsing) {
             break;
           }
           const psshBox = parsePsshBoxContents(readBytes(slice, boxInfo.contentSize));
@@ -6997,11 +7487,11 @@ class IsobmffDemuxer extends Demuxer {
           for (const { boxInfo: boxInfo2, slice: slice2 } of iterator) {
             if (boxInfo2.name !== "meta" && !this.currentTrack) {
               const startPos2 = slice2.filePos;
-              (_m = this.metadataTags).raw ?? (_m.raw = {});
+              (_n = this.metadataTags).raw ?? (_n.raw = {});
               if (boxInfo2.name[0] === "©") {
-                (_n = this.metadataTags.raw)[_o = boxInfo2.name] ?? (_n[_o] = readMetadataStringShort(slice2));
+                (_o = this.metadataTags.raw)[_p = boxInfo2.name] ?? (_o[_p] = readMetadataStringShort(slice2));
               } else {
-                (_p = this.metadataTags.raw)[_q = boxInfo2.name] ?? (_p[_q] = readBytes(slice2, boxInfo2.contentSize));
+                (_q = this.metadataTags.raw)[_r = boxInfo2.name] ?? (_q[_r] = readBytes(slice2, boxInfo2.contentSize));
               }
               slice2.filePos = startPos2;
             }
@@ -7018,42 +7508,42 @@ class IsobmffDemuxer extends Demuxer {
                   if (this.currentTrack) {
                     this.currentTrack.name = textDecoder.decode(readBytes(slice2, boxInfo2.contentSize));
                   } else {
-                    (_r = this.metadataTags).title ?? (_r.title = readMetadataStringShort(slice2));
+                    (_s = this.metadataTags).title ?? (_s.title = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "©des":
                 {
                   if (!this.currentTrack) {
-                    (_s = this.metadataTags).description ?? (_s.description = readMetadataStringShort(slice2));
+                    (_t = this.metadataTags).description ?? (_t.description = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "©ART":
                 {
                   if (!this.currentTrack) {
-                    (_t = this.metadataTags).artist ?? (_t.artist = readMetadataStringShort(slice2));
+                    (_u = this.metadataTags).artist ?? (_u.artist = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "©alb":
                 {
                   if (!this.currentTrack) {
-                    (_u = this.metadataTags).album ?? (_u.album = readMetadataStringShort(slice2));
+                    (_v = this.metadataTags).album ?? (_v.album = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "albr":
                 {
                   if (!this.currentTrack) {
-                    (_v = this.metadataTags).albumArtist ?? (_v.albumArtist = readMetadataStringShort(slice2));
+                    (_w = this.metadataTags).albumArtist ?? (_w.albumArtist = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "©gen":
                 {
                   if (!this.currentTrack) {
-                    (_w = this.metadataTags).genre ?? (_w.genre = readMetadataStringShort(slice2));
+                    (_x = this.metadataTags).genre ?? (_x.genre = readMetadataStringShort(slice2));
                   }
                 }
                 break;
@@ -7062,7 +7552,7 @@ class IsobmffDemuxer extends Demuxer {
                   if (!this.currentTrack) {
                     const date = new Date(readMetadataStringShort(slice2));
                     if (!Number.isNaN(date.getTime())) {
-                      (_x = this.metadataTags).date ?? (_x.date = date);
+                      (_y = this.metadataTags).date ?? (_y.date = date);
                     }
                   }
                 }
@@ -7070,14 +7560,14 @@ class IsobmffDemuxer extends Demuxer {
               case "©cmt":
                 {
                   if (!this.currentTrack) {
-                    (_y = this.metadataTags).comment ?? (_y.comment = readMetadataStringShort(slice2));
+                    (_z = this.metadataTags).comment ?? (_z.comment = readMetadataStringShort(slice2));
                   }
                 }
                 break;
               case "©lyr":
                 {
                   if (!this.currentTrack) {
-                    (_z = this.metadataTags).lyrics ?? (_z.lyrics = readMetadataStringShort(slice2));
+                    (_A = this.metadataTags).lyrics ?? (_A.lyrics = readMetadataStringShort(slice2));
                   }
                 }
                 break;
@@ -7129,8 +7619,8 @@ class IsobmffDemuxer extends Demuxer {
               metadataKey = this.currentMetadataKeys.get(nameAsNumber);
             }
             const data = readDataBox(slice2);
-            (_A = this.metadataTags).raw ?? (_A.raw = {});
-            (_B = this.metadataTags.raw)[metadataKey] ?? (_B[metadataKey] = data);
+            (_B = this.metadataTags).raw ?? (_B.raw = {});
+            (_C = this.metadataTags.raw)[metadataKey] ?? (_C[metadataKey] = data);
             switch (metadataKey) {
               case "©nam":
               case "titl":
@@ -7138,7 +7628,7 @@ class IsobmffDemuxer extends Demuxer {
               case "title":
                 {
                   if (typeof data === "string") {
-                    (_C = this.metadataTags).title ?? (_C.title = data);
+                    (_D = this.metadataTags).title ?? (_D.title = data);
                   }
                 }
                 break;
@@ -7149,7 +7639,7 @@ class IsobmffDemuxer extends Demuxer {
               case "description":
                 {
                   if (typeof data === "string") {
-                    (_D = this.metadataTags).description ?? (_D.description = data);
+                    (_E = this.metadataTags).description ?? (_E.description = data);
                   }
                 }
                 break;
@@ -7158,7 +7648,7 @@ class IsobmffDemuxer extends Demuxer {
               case "artist":
                 {
                   if (typeof data === "string") {
-                    (_E = this.metadataTags).artist ?? (_E.artist = data);
+                    (_F = this.metadataTags).artist ?? (_F.artist = data);
                   }
                 }
                 break;
@@ -7168,7 +7658,7 @@ class IsobmffDemuxer extends Demuxer {
               case "album":
                 {
                   if (typeof data === "string") {
-                    (_F = this.metadataTags).album ?? (_F.album = data);
+                    (_G = this.metadataTags).album ?? (_G.album = data);
                   }
                 }
                 break;
@@ -7176,7 +7666,7 @@ class IsobmffDemuxer extends Demuxer {
               case "album_artist":
                 {
                   if (typeof data === "string") {
-                    (_G = this.metadataTags).albumArtist ?? (_G.albumArtist = data);
+                    (_H = this.metadataTags).albumArtist ?? (_H.albumArtist = data);
                   }
                 }
                 break;
@@ -7185,7 +7675,7 @@ class IsobmffDemuxer extends Demuxer {
               case "comment":
                 {
                   if (typeof data === "string") {
-                    (_H = this.metadataTags).comment ?? (_H.comment = data);
+                    (_I = this.metadataTags).comment ?? (_I.comment = data);
                   }
                 }
                 break;
@@ -7195,7 +7685,7 @@ class IsobmffDemuxer extends Demuxer {
               case "genre":
                 {
                   if (typeof data === "string") {
-                    (_I = this.metadataTags).genre ?? (_I.genre = data);
+                    (_J = this.metadataTags).genre ?? (_J.genre = data);
                   }
                 }
                 break;
@@ -7203,7 +7693,7 @@ class IsobmffDemuxer extends Demuxer {
               case "lyrics":
                 {
                   if (typeof data === "string") {
-                    (_J = this.metadataTags).lyrics ?? (_J.lyrics = data);
+                    (_K = this.metadataTags).lyrics ?? (_K.lyrics = data);
                   }
                 }
                 break;
@@ -7215,7 +7705,7 @@ class IsobmffDemuxer extends Demuxer {
                   if (typeof data === "string") {
                     const date = new Date(data);
                     if (!Number.isNaN(date.getTime())) {
-                      (_K = this.metadataTags).date ?? (_K.date = date);
+                      (_L = this.metadataTags).date ?? (_L.date = date);
                     }
                   }
                 }
@@ -7224,14 +7714,14 @@ class IsobmffDemuxer extends Demuxer {
               case "com.apple.quicktime.artwork":
                 {
                   if (data instanceof RichImageData) {
-                    (_L = this.metadataTags).images ?? (_L.images = []);
+                    (_M = this.metadataTags).images ?? (_M.images = []);
                     this.metadataTags.images.push({
                       data: data.data,
                       kind: "coverFront",
                       mimeType: data.mimeType
                     });
                   } else if (data instanceof Uint8Array) {
-                    (_M = this.metadataTags).images ?? (_M.images = []);
+                    (_N = this.metadataTags).images ?? (_N.images = []);
                     this.metadataTags.images.push({
                       data,
                       kind: "coverFront",
@@ -7247,10 +7737,10 @@ class IsobmffDemuxer extends Demuxer {
                     const trackNum = Number.parseInt(parts[0], 10);
                     const tracksTotal = parts[1] && Number.parseInt(parts[1], 10);
                     if (Number.isInteger(trackNum) && trackNum > 0) {
-                      (_N = this.metadataTags).trackNumber ?? (_N.trackNumber = trackNum);
+                      (_O = this.metadataTags).trackNumber ?? (_O.trackNumber = trackNum);
                     }
                     if (tracksTotal && Number.isInteger(tracksTotal) && tracksTotal > 0) {
-                      (_O = this.metadataTags).tracksTotal ?? (_O.tracksTotal = tracksTotal);
+                      (_P = this.metadataTags).tracksTotal ?? (_P.tracksTotal = tracksTotal);
                     }
                   }
                 }
@@ -7262,10 +7752,10 @@ class IsobmffDemuxer extends Demuxer {
                     const trackNumber = view2.getUint16(2, false);
                     const tracksTotal = view2.getUint16(4, false);
                     if (trackNumber > 0) {
-                      (_P = this.metadataTags).trackNumber ?? (_P.trackNumber = trackNumber);
+                      (_Q = this.metadataTags).trackNumber ?? (_Q.trackNumber = trackNumber);
                     }
                     if (tracksTotal > 0) {
-                      (_Q = this.metadataTags).tracksTotal ?? (_Q.tracksTotal = tracksTotal);
+                      (_R = this.metadataTags).tracksTotal ?? (_R.tracksTotal = tracksTotal);
                     }
                   }
                 }
@@ -7278,10 +7768,10 @@ class IsobmffDemuxer extends Demuxer {
                     const discNumber = view2.getUint16(2, false);
                     const discNumberMax = view2.getUint16(4, false);
                     if (discNumber > 0) {
-                      (_R = this.metadataTags).discNumber ?? (_R.discNumber = discNumber);
+                      (_S = this.metadataTags).discNumber ?? (_S.discNumber = discNumber);
                     }
                     if (discNumberMax > 0) {
-                      (_S = this.metadataTags).discsTotal ?? (_S.discsTotal = discNumberMax);
+                      (_T = this.metadataTags).discsTotal ?? (_T.discsTotal = discNumberMax);
                     }
                   }
                 }
@@ -7532,17 +8022,23 @@ class IsobmffTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.internalTrack.demuxer.reader.requestSlice(sampleInfo.sampleOffset, sampleInfo.sampleSize);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
       }
       data = readBytes(slice, sampleInfo.sampleSize);
-      if (this.internalTrack.encryptionAuxInfo) {
-        assert(this.internalTrack.encryptionInfo);
-        const entries = await resolveEncryptionAuxInfo(this.internalTrack.demuxer.reader, this.internalTrack.encryptionInfo, this.internalTrack.encryptionAuxInfo);
-        if (sampleIndex < entries.length) {
-          data = await decryptSample(this.internalTrack, entries[sampleIndex], data, null);
+      if (this.internalTrack.encryptionInfo) {
+        let sampleEncryption = null;
+        if (this.internalTrack.encryptionAuxInfo) {
+          const entries = await resolveEncryptionAuxInfo(this.internalTrack.demuxer.reader, this.internalTrack.encryptionInfo, this.internalTrack.encryptionAuxInfo);
+          if (sampleIndex < entries.length) {
+            sampleEncryption = entries[sampleIndex];
+          }
+        }
+        sampleEncryption ?? (sampleEncryption = getDefaultSampleEncryption(this.internalTrack.encryptionInfo));
+        if (sampleEncryption) {
+          data = await decryptSample(this.internalTrack, sampleEncryption, data, null);
         }
       }
     }
@@ -7564,14 +8060,17 @@ class IsobmffTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.internalTrack.demuxer.reader.requestSlice(fragmentSample.byteOffset, fragmentSample.byteSize);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
       }
       data = readBytes(slice, fragmentSample.byteSize);
-      if (fragmentSample.encryption) {
-        data = await decryptSample(this.internalTrack, fragmentSample.encryption, data, fragment);
+      if (this.internalTrack.encryptionInfo) {
+        const sampleEncryption = fragmentSample.encryption ?? getDefaultSampleEncryption(this.internalTrack.encryptionInfo);
+        if (sampleEncryption) {
+          data = await decryptSample(this.internalTrack, sampleEncryption, data, fragment);
+        }
       }
     }
     const timestamp = (fragmentSample.presentationTimestamp - this.internalTrack.editListOffset) / this.internalTrack.timescale;
@@ -7620,7 +8119,7 @@ class IsobmffTrackBacking {
         }
       }
       let slice = demuxer.reader.requestSliceRange(currentPos, MIN_BOX_HEADER_SIZE, MAX_BOX_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice)
         break;
@@ -7698,7 +8197,13 @@ class IsobmffVideoTrackBacking extends IsobmffTrackBacking {
       return null;
     }
     return this.decoderConfigPromise ?? (this.decoderConfigPromise = (async () => {
-      if (this.internalTrack.info.codec === "vp9" && !this.internalTrack.info.vp9CodecInfo) {
+      if (this.internalTrack.info.codec === "avc" && !this.internalTrack.info.codecDescription) {
+        const firstPacket = await this.getFirstPacket({});
+        this.internalTrack.info.avcCodecInfo = firstPacket && extractAvcDecoderConfigurationRecord(firstPacket.data);
+      } else if (this.internalTrack.info.codec === "hevc" && !this.internalTrack.info.codecDescription) {
+        const firstPacket = await this.getFirstPacket({});
+        this.internalTrack.info.hevcCodecInfo = firstPacket && extractHevcDecoderConfigurationRecord(firstPacket.data);
+      } else if (this.internalTrack.info.codec === "vp9" && !this.internalTrack.info.vp9CodecInfo) {
         const firstPacket = await this.getFirstPacket({});
         this.internalTrack.info.vp9CodecInfo = firstPacket && extractVp9CodecInfoFromPacket(firstPacket.data);
       } else if (this.internalTrack.info.codec === "av1" && !this.internalTrack.info.av1CodecInfo) {
@@ -7723,7 +8228,7 @@ class IsobmffVideoTrackBacking extends IsobmffTrackBacking {
 class IsobmffAudioTrackBacking extends IsobmffTrackBacking {
   constructor(internalTrack) {
     super(internalTrack);
-    this.decoderConfig = null;
+    this.decoderConfigPromise = null;
     this.internalTrack = internalTrack;
   }
   getType() {
@@ -7742,12 +8247,18 @@ class IsobmffAudioTrackBacking extends IsobmffTrackBacking {
     if (!this.internalTrack.info.codec) {
       return null;
     }
-    return this.decoderConfig ?? (this.decoderConfig = {
-      codec: extractAudioCodecString(this.internalTrack.info),
-      numberOfChannels: this.internalTrack.info.numberOfChannels,
-      sampleRate: this.internalTrack.info.sampleRate,
-      description: this.internalTrack.info.codecDescription ?? void 0
-    });
+    return this.decoderConfigPromise ?? (this.decoderConfigPromise = (async () => {
+      if (this.internalTrack.info.codec === "dts" && !this.internalTrack.info.dtsFormat) {
+        const firstPacket = await this.getFirstPacket({});
+        this.internalTrack.info.dtsFormat = firstPacket && extractDtsFourCcFromPacket(firstPacket.data);
+      }
+      return {
+        codec: extractAudioCodecString(this.internalTrack.info),
+        numberOfChannels: this.internalTrack.info.numberOfChannels,
+        sampleRate: this.internalTrack.info.sampleRate,
+        description: this.internalTrack.info.codecDescription ?? void 0
+      };
+    })());
   }
 }
 const getSampleIndexForTimestamp = (sampleTable, timescaleUnits) => {
@@ -7908,7 +8419,7 @@ const resolveEncryptionAuxInfo = async (reader, encryptionInfo, aux) => {
     }
   }
   let slice = reader.requestSlice(aux.offset, totalSize);
-  if (slice instanceof Promise)
+  if (isThenable(slice))
     slice = await slice;
   if (!slice) {
     throw new Error("Failed to read auxiliary encryption info.");
@@ -7938,6 +8449,15 @@ const resolveEncryptionAuxInfo = async (reader, encryptionInfo, aux) => {
   }
   aux.resolved = entries;
   return entries;
+};
+const getDefaultSampleEncryption = (encryptionInfo) => {
+  if (!encryptionInfo.defaultConstantIv) {
+    return null;
+  }
+  return {
+    iv: encryptionInfo.defaultConstantIv,
+    subsamples: null
+  };
 };
 const decryptSample = async (track, sampleEncryption, data, fragment) => {
   var _a;
@@ -8622,7 +9142,7 @@ const searchForNextElementId = async (reader, startPos, ids, until) => {
   let currentPos = startPos;
   while (until === null || currentPos < until) {
     let slice = reader.requestSliceRange(currentPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       break;
@@ -8644,7 +9164,7 @@ const resync = async (reader, startPos, ids, until) => {
   let currentPos = startPos;
   while (currentPos < until) {
     let slice = reader.requestSliceRange(currentPos, 0, Math.min(CHUNK_SIZE, until - currentPos));
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       break;
@@ -8675,6 +9195,7 @@ const CODEC_STRING_MAP = {
   "flac": "A_FLAC",
   "ac3": "A_AC3",
   "eac3": "A_EAC3",
+  "dts": "A_DTS",
   "pcm-u8": "A_PCM/INT/LIT",
   "pcm-s16": "A_PCM/INT/LIT",
   "pcm-s16be": "A_PCM/INT/BIG",
@@ -8801,7 +9322,7 @@ class MatroskaDemuxer extends Demuxer {
       let currentPos = 0;
       while (true) {
         let slice = this.reader.requestSliceRange(currentPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         if (!slice)
           break;
@@ -8815,7 +9336,7 @@ class MatroskaDemuxer extends Demuxer {
         if (id === EBMLId.EBML) {
           assertDefinedSize(size);
           let slice2 = this.reader.requestSlice(dataStartPos, size);
-          if (slice2 instanceof Promise)
+          if (isThenable(slice2))
             slice2 = await slice2;
           if (!slice2)
             break;
@@ -8871,7 +9392,7 @@ class MatroskaDemuxer extends Demuxer {
     let currentPos = segmentDataStart;
     while (this.currentSegment.elementEndPos === null || currentPos < this.currentSegment.elementEndPos) {
       let slice = this.reader.requestSliceRange(currentPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice)
         break;
@@ -8894,7 +9415,7 @@ class MatroskaDemuxer extends Demuxer {
         this.currentSegment[field] = true;
         assertDefinedSize(size);
         let slice2 = this.reader.requestSlice(dataStartPos, size);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (slice2) {
           this.readContiguousElements(slice2);
@@ -8907,7 +9428,7 @@ class MatroskaDemuxer extends Demuxer {
         }
         assertDefinedSize(size);
         let slice2 = this.reader.requestSlice(dataStartPos, size);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (slice2) {
           this.readContiguousElements(slice2);
@@ -8932,7 +9453,7 @@ class MatroskaDemuxer extends Demuxer {
         if (this.currentSegment[target.flag])
           continue;
         let slice = this.reader.requestSliceRange(segmentDataStart + seekEntry.segmentPosition, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         if (!slice)
           continue;
@@ -8945,7 +9466,7 @@ class MatroskaDemuxer extends Demuxer {
         assertDefinedSize(size);
         this.currentSegment[target.flag] = true;
         let dataSlice = this.reader.requestSlice(slice.filePos, size);
-        if (dataSlice instanceof Promise)
+        if (isThenable(dataSlice))
           dataSlice = await dataSlice;
         if (!dataSlice)
           continue;
@@ -9000,7 +9521,7 @@ class MatroskaDemuxer extends Demuxer {
       return segment.lastReadCluster;
     }
     let headerSlice = this.reader.requestSliceRange(startPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-    if (headerSlice instanceof Promise)
+    if (isThenable(headerSlice))
       headerSlice = await headerSlice;
     assert(headerSlice);
     const elementStartPos = startPos;
@@ -9015,7 +9536,7 @@ class MatroskaDemuxer extends Demuxer {
       size = nextElementPos.pos - dataStartPos;
     }
     let dataSlice = this.reader.requestSlice(dataStartPos, size);
-    if (dataSlice instanceof Promise)
+    if (isThenable(dataSlice))
       dataSlice = await dataSlice;
     const cluster = {
       segment,
@@ -9192,7 +9713,7 @@ class MatroskaDemuxer extends Demuxer {
         continue;
       }
       let slice = this.reader.requestSliceRange(segment.dataStartPos + seekEntry.segmentPosition, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice)
         continue;
@@ -9204,7 +9725,7 @@ class MatroskaDemuxer extends Demuxer {
       assert(!this.currentSegment);
       this.currentSegment = segment;
       let dataSlice = this.reader.requestSlice(slice.filePos, size);
-      if (dataSlice instanceof Promise)
+      if (isThenable(dataSlice))
         dataSlice = await dataSlice;
       if (dataSlice) {
         this.readContiguousElements(dataSlice);
@@ -9390,6 +9911,13 @@ class MatroskaDemuxer extends Demuxer {
               } else if (codecIdWithoutSuffix === CODEC_STRING_MAP.eac3) {
                 this.currentTrack.info.codec = "eac3";
                 this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;
+              } else if (codecIdWithoutSuffix === CODEC_STRING_MAP.dts) {
+                this.currentTrack.info.codec = "dts";
+                if (this.currentTrack.codecId === "A_DTS/EXPRESS") {
+                  this.currentTrack.info.dtsFormat = "dtse";
+                } else if (this.currentTrack.codecId === "A_DTS/LOSSLESS") {
+                  this.currentTrack.info.dtsFormat = "dtsl";
+                }
               } else if (this.currentTrack.codecId === "A_PCM/INT/LIT") {
                 if (this.currentTrack.info.bitDepth === 8) {
                   this.currentTrack.info.codec = "pcm-u8";
@@ -9464,7 +9992,8 @@ class MatroskaDemuxer extends Demuxer {
               bitDepth: -1,
               codec: null,
               codecDescription: null,
-              aacCodecInfo: null
+              aacCodecInfo: null,
+              dtsFormat: null
             };
           }
         }
@@ -10485,7 +11014,7 @@ class MatroskaTrackBacking {
         }
       }
       let slice = demuxer.reader.requestSliceRange(currentPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice)
         break;
@@ -10523,7 +11052,7 @@ class MatroskaTrackBacking {
       const endPos = dataStartPos + size;
       if (segment.elementEndPos === null) {
         let slice2 = demuxer.reader.requestSliceRange(endPos, MIN_HEADER_SIZE, MAX_HEADER_SIZE);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (!slice2)
           break;
@@ -10627,7 +11156,7 @@ class MatroskaVideoTrackBacking extends MatroskaTrackBacking {
 class MatroskaAudioTrackBacking extends MatroskaTrackBacking {
   constructor(internalTrack) {
     super(internalTrack);
-    this.decoderConfig = null;
+    this.decoderConfigPromise = null;
     this.internalTrack = internalTrack;
   }
   getType() {
@@ -10646,16 +11175,23 @@ class MatroskaAudioTrackBacking extends MatroskaTrackBacking {
     if (!this.internalTrack.info.codec) {
       return null;
     }
-    return this.decoderConfig ?? (this.decoderConfig = {
-      codec: extractAudioCodecString({
-        codec: this.internalTrack.info.codec,
-        codecDescription: this.internalTrack.info.codecDescription,
-        aacCodecInfo: this.internalTrack.info.aacCodecInfo
-      }),
-      numberOfChannels: this.internalTrack.info.numberOfChannels,
-      sampleRate: this.internalTrack.info.sampleRate,
-      description: this.internalTrack.info.codecDescription ?? void 0
-    });
+    return this.decoderConfigPromise ?? (this.decoderConfigPromise = (async () => {
+      if (this.internalTrack.info.codec === "dts" && !this.internalTrack.info.dtsFormat) {
+        const firstPacket = await this.getFirstPacket({});
+        this.internalTrack.info.dtsFormat = firstPacket && extractDtsFourCcFromPacket(firstPacket.data);
+      }
+      return {
+        codec: extractAudioCodecString({
+          codec: this.internalTrack.info.codec,
+          codecDescription: this.internalTrack.info.codecDescription,
+          aacCodecInfo: this.internalTrack.info.aacCodecInfo,
+          dtsFormat: this.internalTrack.info.dtsFormat
+        }),
+        numberOfChannels: this.internalTrack.info.numberOfChannels,
+        sampleRate: this.internalTrack.info.sampleRate,
+        description: this.internalTrack.info.codecDescription ?? void 0
+      };
+    })());
   }
 }
 /*!
@@ -10671,7 +11207,7 @@ const readNextMp3FrameHeader = async (reader, startPos, until, ref = null) => {
   while (until === null || currentPos < until) {
     const maxLength = until !== null ? Math.min(CHUNK_SIZE, until - currentPos) : CHUNK_SIZE;
     let slice = reader.requestSliceRange(currentPos, MP3_FRAME_HEADER_SIZE, maxLength);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice || slice.length < MP3_FRAME_HEADER_SIZE)
       break;
@@ -10735,7 +11271,7 @@ class Mp3Demuxer extends Demuxer {
     if (this.lastLoadedPos === 0) {
       while (true) {
         let slice2 = this.reader.requestSlice(this.lastLoadedPos, ID3_V2_HEADER_SIZE);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (!slice2) {
           this.lastSampleLoaded = true;
@@ -10757,7 +11293,7 @@ class Mp3Demuxer extends Demuxer {
     this.lastLoadedPos = result.startPos + header.totalSize - 1;
     const xingOffset = getXingOffset(header.mpegVersionId, header.channel);
     let slice = this.reader.requestSlice(result.startPos + xingOffset, 4);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (slice) {
       const word = readU32Be(slice);
@@ -10769,7 +11305,7 @@ class Mp3Demuxer extends Demuxer {
         }
         if (!this.xingData) {
           let xingDataSlice = this.reader.requestSlice(result.startPos + xingOffset + 4, 12);
-          if (xingDataSlice instanceof Promise)
+          if (isThenable(xingDataSlice))
             xingDataSlice = await xingDataSlice;
           if (xingDataSlice) {
             const xingData = readBytes(xingDataSlice, 12);
@@ -10818,7 +11354,7 @@ class Mp3Demuxer extends Demuxer {
       let id3V2HeaderFound = false;
       while (true) {
         let headerSlice = this.reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
           headerSlice = await headerSlice;
         if (!headerSlice)
           break;
@@ -10828,7 +11364,7 @@ class Mp3Demuxer extends Demuxer {
         }
         id3V2HeaderFound = true;
         let contentSlice = this.reader.requestSlice(headerSlice.filePos, id3V2Header.size);
-        if (contentSlice instanceof Promise)
+        if (isThenable(contentSlice))
           contentSlice = await contentSlice;
         if (!contentSlice)
           break;
@@ -10837,7 +11373,7 @@ class Mp3Demuxer extends Demuxer {
       }
       if (!id3V2HeaderFound && this.reader.fileSize !== null && this.reader.fileSize >= ID3_V1_TAG_SIZE) {
         let slice = this.reader.requestSlice(this.reader.fileSize - ID3_V1_TAG_SIZE, ID3_V1_TAG_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         assert(slice);
         const tag = readAscii(slice, 3);
@@ -10949,7 +11485,7 @@ class Mp3AudioTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.demuxer.reader.requestSlice(rawSample.dataStart, rawSample.dataSize);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
@@ -11156,7 +11692,7 @@ class OggDemuxer extends Demuxer {
       let currentPos = 0;
       while (true) {
         let slice = this.reader.requestSliceRange(currentPos, MIN_PAGE_HEADER_SIZE, MAX_PAGE_HEADER_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         if (!slice)
           break;
@@ -11291,7 +11827,7 @@ class OggDemuxer extends Demuxer {
     const chunks = [];
     outer: while (true) {
       let pageSlice = this.reader.requestSlice(currentPage.dataStartPos, currentPage.dataSize);
-      if (pageSlice instanceof Promise)
+      if (isThenable(pageSlice))
         pageSlice = await pageSlice;
       assert(pageSlice);
       const pageData = readBytes(pageSlice, currentPage.dataSize);
@@ -11311,7 +11847,7 @@ class OggDemuxer extends Demuxer {
       let currentPos = currentPage.headerStartPos + currentPage.totalSize;
       while (true) {
         let headerSlice = this.reader.requestSliceRange(currentPos, MIN_PAGE_HEADER_SIZE, MAX_PAGE_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
           headerSlice = await headerSlice;
         if (!headerSlice) {
           return null;
@@ -11358,7 +11894,7 @@ class OggDemuxer extends Demuxer {
     let currentPos = lastPacket.endPage.headerStartPos + lastPacket.endPage.totalSize;
     while (true) {
       let slice = this.reader.requestSliceRange(currentPos, MIN_PAGE_HEADER_SIZE, MAX_PAGE_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
@@ -11547,7 +12083,7 @@ class OggAudioTrackBacking {
       while (true) {
         const until = Math.min(searchStartPos + MAX_PAGE_SIZE, high - MIN_PAGE_HEADER_SIZE);
         let searchSlice = this.demuxer.reader.requestSlice(searchStartPos, until - searchStartPos);
-        if (searchSlice instanceof Promise)
+        if (isThenable(searchSlice))
           searchSlice = await searchSlice;
         assert(searchSlice);
         const found = findNextPageHeader(searchSlice, until);
@@ -11556,7 +12092,7 @@ class OggAudioTrackBacking {
           continue outer;
         }
         let headerSlice = this.demuxer.reader.requestSliceRange(searchSlice.filePos, MIN_PAGE_HEADER_SIZE, MAX_PAGE_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
           headerSlice = await headerSlice;
         assert(headerSlice);
         const page = readPageHeader(headerSlice);
@@ -11566,7 +12102,7 @@ class OggAudioTrackBacking {
           pageValid = true;
         } else {
           let pageSlice = this.demuxer.reader.requestSlice(page.headerStartPos, page.totalSize);
-          if (pageSlice instanceof Promise)
+          if (isThenable(pageSlice))
             pageSlice = await pageSlice;
           assert(pageSlice);
           const bytes2 = readBytes(pageSlice, page.totalSize);
@@ -11612,7 +12148,7 @@ class OggAudioTrackBacking {
       }
       const nextPos = currentPage.headerStartPos + currentPage.totalSize;
       let slice = this.demuxer.reader.requestSliceRange(nextPos, MIN_PAGE_HEADER_SIZE, MAX_PAGE_HEADER_SIZE);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       assert(slice);
       const nextPage = readPageHeader(slice);
@@ -11847,7 +12383,7 @@ class WaveDemuxer extends Demuxer {
   async readMetadata() {
     return this.metadataPromise ?? (this.metadataPromise = (async () => {
       let slice = this.reader.requestSlice(0, 12);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       assert(slice);
       const riffType = readAscii(slice, 4);
@@ -11864,7 +12400,7 @@ class WaveDemuxer extends Demuxer {
       let currentPos = slice.filePos;
       while (totalFileSize === null || currentPos < totalFileSize) {
         let slice2 = this.reader.requestSlice(currentPos, 8);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (!slice2)
           break;
@@ -11885,7 +12421,7 @@ class WaveDemuxer extends Demuxer {
           }
         } else if (chunkId === "ds64") {
           let ds64Slice = this.reader.requestSlice(startPos, chunkSize);
-          if (ds64Slice instanceof Promise)
+          if (isThenable(ds64Slice))
             ds64Slice = await ds64Slice;
           if (!ds64Slice)
             break;
@@ -11913,7 +12449,7 @@ class WaveDemuxer extends Demuxer {
   }
   async parseFmtChunk(startPos, size, littleEndian) {
     let slice = this.reader.requestSlice(startPos, size);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return;
@@ -11961,7 +12497,7 @@ class WaveDemuxer extends Demuxer {
   async parseListChunk(startPos, size, littleEndian) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
     let slice = this.reader.requestSlice(startPos, size);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return;
@@ -12058,7 +12594,7 @@ class WaveDemuxer extends Demuxer {
   }
   async parseId3Chunk(startPos, size) {
     let slice = this.reader.requestSlice(startPos, size);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return;
@@ -12200,7 +12736,7 @@ class WaveAudioTrackBacking {
     const sizeInBytes = Math.min(PACKET_SIZE_IN_FRAMES * this.demuxer.audioInfo.blockSizeInBytes, this.demuxer.dataSize - startOffset);
     if (this.demuxer.reader.fileSize === null) {
       let slice = this.demuxer.reader.requestSlice(this.demuxer.dataStart + startOffset, sizeInBytes);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
@@ -12211,7 +12747,7 @@ class WaveAudioTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.demuxer.reader.requestSlice(this.demuxer.dataStart + startOffset, sizeInBytes);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       assert(slice);
       data = readBytes(slice, sizeInBytes);
@@ -12354,7 +12890,7 @@ class AdtsDemuxer extends Demuxer {
     if (this.lastLoadedPos === 0) {
       while (true) {
         let slice2 = this.reader.requestSlice(this.lastLoadedPos, ID3_V2_HEADER_SIZE);
-        if (slice2 instanceof Promise)
+        if (isThenable(slice2))
           slice2 = await slice2;
         if (!slice2) {
           this.lastSampleLoaded = true;
@@ -12368,7 +12904,7 @@ class AdtsDemuxer extends Demuxer {
       }
     }
     let slice = this.reader.requestSliceRange(this.lastLoadedPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice) {
       this.lastSampleLoaded = true;
@@ -12417,7 +12953,7 @@ class AdtsDemuxer extends Demuxer {
       let currentPos = 0;
       while (true) {
         let headerSlice = this.reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
           headerSlice = await headerSlice;
         if (!headerSlice)
           break;
@@ -12426,7 +12962,7 @@ class AdtsDemuxer extends Demuxer {
           break;
         }
         let contentSlice = this.reader.requestSlice(headerSlice.filePos, id3V2Header.size);
-        if (contentSlice instanceof Promise)
+        if (isThenable(contentSlice))
           contentSlice = await contentSlice;
         if (!contentSlice)
           break;
@@ -12528,7 +13064,7 @@ class AdtsAudioTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.demuxer.reader.requestSlice(rawSample.dataStart, rawSample.dataSize);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
@@ -12755,7 +13291,7 @@ class FlacDemuxer extends Demuxer {
       let currentPos = 0;
       while (true) {
         let headerSlice = this.reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-        if (headerSlice instanceof Promise)
+        if (isThenable(headerSlice))
           headerSlice = await headerSlice;
         if (!headerSlice) {
           this.lastSampleLoaded = true;
@@ -12766,7 +13302,7 @@ class FlacDemuxer extends Demuxer {
           break;
         }
         let contentSlice = this.reader.requestSlice(headerSlice.filePos, id3V2Header.size);
-        if (contentSlice instanceof Promise)
+        if (isThenable(contentSlice))
           contentSlice = await contentSlice;
         assert(contentSlice);
         parseId3V2Tag(contentSlice, id3V2Header, this.metadataTags);
@@ -12775,7 +13311,7 @@ class FlacDemuxer extends Demuxer {
       currentPos += 4;
       while (this.reader.fileSize === null || currentPos < this.reader.fileSize) {
         let sizeSlice = this.reader.requestSlice(currentPos, 4);
-        if (sizeSlice instanceof Promise)
+        if (isThenable(sizeSlice))
           sizeSlice = await sizeSlice;
         currentPos += 4;
         if (sizeSlice === null) {
@@ -12789,7 +13325,7 @@ class FlacDemuxer extends Demuxer {
         switch (metaBlockType) {
           case FlacBlockType.STREAMINFO: {
             let streamInfoBlock = this.reader.requestSlice(currentPos, size);
-            if (streamInfoBlock instanceof Promise)
+            if (isThenable(streamInfoBlock))
               streamInfoBlock = await streamInfoBlock;
             assert(streamInfoBlock);
             if (streamInfoBlock === null) {
@@ -12825,7 +13361,7 @@ class FlacDemuxer extends Demuxer {
           }
           case FlacBlockType.VORBIS_COMMENT: {
             let vorbisCommentBlock = this.reader.requestSlice(currentPos, size);
-            if (vorbisCommentBlock instanceof Promise)
+            if (isThenable(vorbisCommentBlock))
               vorbisCommentBlock = await vorbisCommentBlock;
             assert(vorbisCommentBlock);
             readVorbisComments(readBytes(vorbisCommentBlock, size), this.metadataTags);
@@ -12833,7 +13369,7 @@ class FlacDemuxer extends Demuxer {
           }
           case FlacBlockType.PICTURE: {
             let pictureBlock = this.reader.requestSlice(currentPos, size);
-            if (pictureBlock instanceof Promise)
+            if (isThenable(pictureBlock))
               pictureBlock = await pictureBlock;
             assert(pictureBlock);
             const pictureType = readU32Be(pictureBlock);
@@ -13163,7 +13699,7 @@ class FlacAudioTrackBacking {
       data = PLACEHOLDER_DATA;
     } else {
       let slice = this.demuxer.reader.requestSlice(rawSample.byteOffset, rawSample.byteSize);
-      if (slice instanceof Promise)
+      if (isThenable(slice))
         slice = await slice;
       if (!slice) {
         return null;
@@ -13207,6 +13743,15 @@ const buildMpegTsMimeType = (codecStrings) => {
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 const MISSING_PTS_ERROR_MESSAGE = "PES packet is missing PTS where it was expected. PES packets without PTS are not currently supported. If you think this file should be supported, please report it.";
+const REGISTRATION_DESCRIPTOR_TAG = 5;
+const HDMV_FORMAT_IDENTIFIER = 1212435798;
+const HDPR_FORMAT_IDENTIFIER = 1212436562;
+const DTS_FORMAT_IDENTIFIER_PREFIX = 1146376960;
+const BLU_RAY_DTS_STREAM_TYPES = /* @__PURE__ */ new Set([
+  133,
+  134,
+  162
+]);
 const ignoredStreamTypes = /* @__PURE__ */ new Set();
 class MpegTsDemuxer extends Demuxer {
   constructor(input) {
@@ -13225,7 +13770,7 @@ class MpegTsDemuxer extends Demuxer {
     return this.metadataPromise ?? (this.metadataPromise = (async () => {
       const lengthToCheck = TS_PACKET_SIZE + 16 + 1;
       let startingSlice = this.reader.requestSlice(0, lengthToCheck);
-      if (startingSlice instanceof Promise)
+      if (isThenable(startingSlice))
         startingSlice = await startingSlice;
       assert(startingSlice);
       const startingBytes = readBytes(startingSlice, lengthToCheck);
@@ -13310,7 +13855,19 @@ class MpegTsDemuxer extends Demuxer {
           bitstream.readBits(13);
           bitstream.skipBits(6);
           const programInfoLength = bitstream.readBits(10);
-          bitstream.skipBits(8 * programInfoLength);
+          const programInfoEndPos = bitstream.pos + 8 * programInfoLength;
+          let isBluRayProgram = false;
+          while (bitstream.pos < programInfoEndPos) {
+            const descriptorTag = bitstream.readBits(8);
+            const descriptorLength = bitstream.readBits(8);
+            const descriptorEndPos = bitstream.pos + 8 * descriptorLength;
+            if (descriptorTag === REGISTRATION_DESCRIPTOR_TAG && descriptorLength >= 4) {
+              const formatIdentifier = bitstream.readBits(32);
+              isBluRayProgram || (isBluRayProgram = formatIdentifier === HDMV_FORMAT_IDENTIFIER || formatIdentifier === HDPR_FORMAT_IDENTIFIER);
+            }
+            bitstream.pos = descriptorEndPos;
+          }
+          bitstream.pos = programInfoEndPos;
           while (8 * (sectionLength + BYTES_BEFORE_SECTION_LENGTH) - bitstream.pos > BITS_IN_CRC_32) {
             const streamType = bitstream.readBits(8);
             bitstream.skipBits(3);
@@ -13320,18 +13877,26 @@ class MpegTsDemuxer extends Demuxer {
             const esInfoEndPos = bitstream.pos + 8 * esInfoLength;
             let hasAc3Descriptor = false;
             let hasEac3Descriptor = false;
+            let hasDtsDescriptor = false;
             while (bitstream.pos < esInfoEndPos) {
               const descriptorTag = bitstream.readBits(8);
               const descriptorLength = bitstream.readBits(8);
+              const descriptorEndPos = bitstream.pos + 8 * descriptorLength;
               if (descriptorTag === 106) {
                 hasAc3Descriptor = true;
               } else if (descriptorTag === 122 || descriptorTag === 204) {
                 hasEac3Descriptor = true;
+              } else if (descriptorTag === 123) {
+                hasDtsDescriptor = true;
+              } else if (descriptorTag === REGISTRATION_DESCRIPTOR_TAG && descriptorLength >= 4) {
+                const formatIdentifier = bitstream.readBits(32);
+                hasDtsDescriptor || (hasDtsDescriptor = (formatIdentifier & 4294967040) === DTS_FORMAT_IDENTIFIER_PREFIX);
               }
-              bitstream.skipBits(8 * descriptorLength);
+              bitstream.pos = descriptorEndPos;
             }
             let info = null;
-            switch (streamType) {
+            const effectiveStreamType = isBluRayProgram && BLU_RAY_DTS_STREAM_TYPES.has(streamType) ? 130 : streamType;
+            switch (effectiveStreamType) {
               case 27:
               case 36:
                 {
@@ -13361,24 +13926,27 @@ class MpegTsDemuxer extends Demuxer {
               case 15:
               case 129:
               case 135:
+              case 130:
+              case 138:
                 {
                   let codec;
-                  if (streamType === 3 || streamType === 4) {
+                  if (effectiveStreamType === 3 || effectiveStreamType === 4) {
                     codec = "mp3";
-                  } else if (streamType === 15) {
+                  } else if (effectiveStreamType === 15) {
                     codec = "aac";
-                  } else if (streamType === 129) {
+                  } else if (effectiveStreamType === 129) {
                     codec = "ac3";
-                  } else if (streamType === 135) {
+                  } else if (effectiveStreamType === 135) {
                     codec = "eac3";
                   } else {
-                    throw new Error("Unreachable.");
+                    codec = "dts";
                   }
                   info = {
                     type: "audio",
                     codec,
                     decoderConfig: null,
                     aacCodecInfo: null,
+                    dtsFormat: null,
                     numberOfChannels: -1,
                     sampleRate: -1
                   };
@@ -13392,6 +13960,7 @@ class MpegTsDemuxer extends Demuxer {
                       codec: "eac3",
                       decoderConfig: null,
                       aacCodecInfo: null,
+                      dtsFormat: null,
                       numberOfChannels: -1,
                       sampleRate: -1
                     };
@@ -13401,6 +13970,17 @@ class MpegTsDemuxer extends Demuxer {
                       codec: "ac3",
                       decoderConfig: null,
                       aacCodecInfo: null,
+                      dtsFormat: null,
+                      numberOfChannels: -1,
+                      sampleRate: -1
+                    };
+                  } else if (hasDtsDescriptor) {
+                    info = {
+                      type: "audio",
+                      codec: "dts",
+                      decoderConfig: null,
+                      aacCodecInfo: null,
+                      dtsFormat: null,
                       numberOfChannels: -1,
                       sampleRate: -1
                     };
@@ -13586,6 +14166,16 @@ class MpegTsDemuxer extends Demuxer {
                 }
                 elementaryStream.info.numberOfChannels = getEac3ChannelCount(frameInfo);
                 elementaryStream.info.sampleRate = sampleRate;
+              } else if (elementaryStream.info.codec === "dts") {
+                const frameInfo = parseDtsFrame(context.suppliedPacket.data);
+                if (!frameInfo) {
+                  throw new Error("Invalid DTS audio stream; could not read frame header from first packet.");
+                }
+                elementaryStream.info.numberOfChannels = frameInfo.numberOfChannels;
+                elementaryStream.info.sampleRate = frameInfo.sampleRate;
+                if (frameInfo.core) {
+                  elementaryStream.info.dtsFormat = frameInfo.hasExtensions ? "dtsh" : "dtsc";
+                }
               } else {
                 throw new Error("Unhandled.");
               }
@@ -13593,7 +14183,8 @@ class MpegTsDemuxer extends Demuxer {
                 codec: extractAudioCodecString({
                   codec: elementaryStream.info.codec,
                   codecDescription: null,
-                  aacCodecInfo: elementaryStream.info.aacCodecInfo
+                  aacCodecInfo: elementaryStream.info.aacCodecInfo,
+                  dtsFormat: elementaryStream.info.dtsFormat
                 }),
                 numberOfChannels: elementaryStream.info.numberOfChannels,
                 sampleRate: elementaryStream.info.sampleRate
@@ -13727,7 +14318,7 @@ class MpegTsDemuxer extends Demuxer {
   }
   async readPacketHeader(pos) {
     let slice = this.reader.requestSlice(pos, 4);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice) {
       return null;
@@ -13749,7 +14340,7 @@ class MpegTsDemuxer extends Demuxer {
   }
   async readPacket(pos) {
     let slice = this.reader.requestSlice(pos, TS_PACKET_SIZE);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice) {
       return null;
@@ -14467,6 +15058,7 @@ class PacketReadingContext {
     this.currentPesPacketIndex++;
   }
   async markNextPacket() {
+    var _a;
     assert(!this.suppliedPacket);
     const elementaryStream = this.elementaryStream;
     if (elementaryStream.info.type === "video") {
@@ -14481,7 +15073,7 @@ class PacketReadingContext {
       let lastFirstMacroblockInSlice = 0;
       while (true) {
         let remaining = this.ensureBuffered(CHUNK_SIZE);
-        if (remaining instanceof Promise)
+        if (isThenable(remaining))
           remaining = await remaining;
         if (remaining === 0) {
           break;
@@ -14584,7 +15176,7 @@ class PacketReadingContext {
       const CHUNK_SIZE = 128;
       while (true) {
         let remaining = this.ensureBuffered(CHUNK_SIZE);
-        if (remaining instanceof Promise)
+        if (isThenable(remaining))
           remaining = await remaining;
         const startPos = this.currentPos;
         while (this.currentPos - startPos < remaining) {
@@ -14596,7 +15188,7 @@ class PacketReadingContext {
             this.skip(-1);
             const possibleHeaderStartPos = this.currentPos;
             let remaining2 = this.ensureBuffered(MAX_ADTS_FRAME_HEADER_SIZE);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             if (remaining2 < MAX_ADTS_FRAME_HEADER_SIZE) {
               return;
@@ -14606,7 +15198,7 @@ class PacketReadingContext {
             if (header) {
               this.seekTo(possibleHeaderStartPos);
               let remaining3 = this.ensureBuffered(header.frameLength);
-              if (remaining3 instanceof Promise)
+              if (isThenable(remaining3))
                 remaining3 = await remaining3;
               return this.supplyPacket(remaining3, Math.round(SAMPLES_PER_AAC_FRAME * TIMESCALE / elementaryStream.info.sampleRate));
             } else {
@@ -14619,7 +15211,7 @@ class PacketReadingContext {
             this.skip(-1);
             const possibleHeaderStartPos = this.currentPos;
             let remaining2 = this.ensureBuffered(MP3_FRAME_HEADER_SIZE);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             if (remaining2 < MP3_FRAME_HEADER_SIZE) {
               return;
@@ -14630,7 +15222,7 @@ class PacketReadingContext {
             if (result.header) {
               this.seekTo(possibleHeaderStartPos);
               let remaining3 = this.ensureBuffered(result.header.totalSize);
-              if (remaining3 instanceof Promise)
+              if (isThenable(remaining3))
                 remaining3 = await remaining3;
               const duration = result.header.audioSamplesInFrame * TIMESCALE / elementaryStream.info.sampleRate;
               return this.supplyPacket(remaining3, Math.round(duration));
@@ -14644,7 +15236,7 @@ class PacketReadingContext {
             this.skip(-1);
             const possibleSyncPos = this.currentPos;
             let remaining2 = this.ensureBuffered(5);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             if (remaining2 < 5) {
               return;
@@ -14664,7 +15256,7 @@ class PacketReadingContext {
             assert(frameSize !== void 0);
             this.seekTo(possibleSyncPos);
             remaining2 = this.ensureBuffered(frameSize);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             const duration = Math.round(AC3_SAMPLES_PER_FRAME * TIMESCALE / elementaryStream.info.sampleRate);
             return this.supplyPacket(remaining2, duration);
@@ -14675,7 +15267,7 @@ class PacketReadingContext {
             this.skip(-1);
             const possibleSyncPos = this.currentPos;
             let remaining2 = this.ensureBuffered(5);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             if (remaining2 < 5) {
               return;
@@ -14692,10 +15284,69 @@ class PacketReadingContext {
             const numblks = EAC3_NUMBLKS_TABLE[numblkscod];
             this.seekTo(possibleSyncPos);
             remaining2 = this.ensureBuffered(frameSize);
-            if (remaining2 instanceof Promise)
+            if (isThenable(remaining2))
               remaining2 = await remaining2;
             const samplesPerFrame = numblks * 256;
             const duration = Math.round(samplesPerFrame * TIMESCALE / elementaryStream.info.sampleRate);
+            return this.supplyPacket(remaining2, duration);
+          } else if (codec === "dts") {
+            if (byte !== 127 && byte !== 100) {
+              continue;
+            }
+            this.skip(-1);
+            const possibleSyncPos = this.currentPos;
+            let remaining2 = this.ensureBuffered(DTS_CORE_FRAME_HEADER_SIZE);
+            if (isThenable(remaining2))
+              remaining2 = await remaining2;
+            if (remaining2 < DTS_CORE_FRAME_HEADER_SIZE) {
+              return;
+            }
+            const headerBytes = this.readBytes(DTS_CORE_FRAME_HEADER_SIZE);
+            const core = parseDtsCoreFrameHeader(headerBytes);
+            let leadingExss = core ? null : parseDtsExssHeader(headerBytes);
+            if (!core && !leadingExss) {
+              this.seekTo(possibleSyncPos + 1);
+              continue;
+            }
+            if (leadingExss && !leadingExss.asset) {
+              this.seekTo(possibleSyncPos);
+              const headerBound = Math.min(leadingExss.frameSize, DTS_EXSS_MAX_HEADER_SIZE);
+              let remaining3 = this.ensureBuffered(headerBound);
+              if (isThenable(remaining3))
+                remaining3 = await remaining3;
+              leadingExss = parseDtsExssHeader(this.readBytes(remaining3)) ?? leadingExss;
+            }
+            let frameSize = core ? core.frameSize : leadingExss.frameSize;
+            if (core) {
+              let nextSubstreamPos = Math.ceil(core.frameSize / 4) * 4;
+              while (true) {
+                this.seekTo(possibleSyncPos);
+                const neededBytes = nextSubstreamPos + DTS_EXSS_HEADER_PREFIX_SIZE;
+                let remaining3 = this.ensureBuffered(neededBytes);
+                if (isThenable(remaining3))
+                  remaining3 = await remaining3;
+                if (remaining3 < neededBytes) {
+                  break;
+                }
+                this.seekTo(possibleSyncPos + nextSubstreamPos);
+                const exss = parseDtsExssHeader(this.readBytes(DTS_EXSS_HEADER_PREFIX_SIZE));
+                if (!exss) {
+                  break;
+                }
+                nextSubstreamPos += exss.frameSize;
+                frameSize = nextSubstreamPos;
+              }
+            }
+            const sampleCount = (core == null ? void 0 : core.sampleCount) ?? ((_a = leadingExss.asset) == null ? void 0 : _a.sampleCount);
+            if (sampleCount === void 0) {
+              this.seekTo(possibleSyncPos + 1);
+              continue;
+            }
+            this.seekTo(possibleSyncPos);
+            remaining2 = this.ensureBuffered(frameSize);
+            if (isThenable(remaining2))
+              remaining2 = await remaining2;
+            const duration = Math.round(sampleCount * TIMESCALE / elementaryStream.info.sampleRate);
             return this.supplyPacket(remaining2, duration);
           } else {
             throw new Error("Unhandled.");
@@ -15481,7 +16132,7 @@ class PathedSource extends Source {
       (_a = ref.source)._usedForHls || (_a._usedForHls = this._usedForHls);
       return ref;
     };
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then(handle);
     } else {
       return handle(result);
@@ -15508,7 +16159,7 @@ class CustomPathedSource extends PathedSource {
           this._rootRequest = null;
           return ref;
         };
-        if (result instanceof Promise) {
+        if (isThenable(result)) {
           this._rootRequest = result.then(handle);
         } else {
           handle(result);
@@ -15772,7 +16423,7 @@ class UrlSource extends PathedSource {
       result2.offset -= this._offset;
       return result2;
     };
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then(processResult);
     } else {
       return processResult(result);
@@ -15959,7 +16610,7 @@ class UrlSource extends PathedSource {
     this._orchestrator.queuedReads.length = 0;
     for (const slice of uniqueSlices) {
       const result = backing._read(slice.start, slice.start + slice.bytes.length);
-      if (result instanceof Promise) {
+      if (isThenable(result)) {
         result.then((readResult) => {
           if (readResult) {
             assert(readResult.offset === slice.start);
@@ -16095,7 +16746,7 @@ class CustomSource extends Source {
       return this._orchestrator.read(start, end, minReadPosition, maxReadPosition);
     }
     const result = this._options.getSize();
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then((size) => {
         if (!Number.isInteger(size) || size < 0) {
           throw new TypeError("options.getSize must return or resolve to a non-negative integer.");
@@ -16117,7 +16768,7 @@ class CustomSource extends Source {
       const originalCurrentPos = worker.currentPos;
       const originalTargetPos = worker.targetPos;
       let data = this._options.read(worker.currentPos, originalTargetPos);
-      if (data instanceof Promise)
+      if (isThenable(data))
         data = await data;
       if (worker.aborted) {
         break;
@@ -16857,7 +17508,7 @@ class RangedSource extends Source {
       result2.offset -= this._offset;
       return result2;
     };
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then(processResult);
     } else {
       return processResult(result);
@@ -18139,7 +18790,7 @@ class IsobmffInputFormat extends InputFormat {
   /** @internal */
   async _getMajorBrand(input) {
     let slice = input._reader.requestSlice(0, 12);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return null;
@@ -18162,13 +18813,37 @@ class Mp4InputFormat extends IsobmffInputFormat {
     if (majorBrand !== null) {
       return majorBrand !== "qt  ";
     }
-    let slice = input._reader.requestSlice(4, 4);
-    if (slice instanceof Promise)
-      slice = await slice;
-    if (!slice)
-      return false;
-    const fourCc = readAscii(slice, 4);
-    return fourCc === "moof" || fourCc === "sidx";
+    let pos = 0;
+    for (let iter = 0; iter < 10; iter++) {
+      let slice = input._reader.requestSlice(pos, 8);
+      if (isThenable(slice))
+        slice = await slice;
+      if (!slice)
+        return false;
+      let size = readU32Be(slice);
+      let headerSize = 8;
+      if (size === 1) {
+        let sizeExtensionSlice = input._reader.requestSlice(pos + 8, 8);
+        if (isThenable(sizeExtensionSlice))
+          sizeExtensionSlice = await sizeExtensionSlice;
+        if (!sizeExtensionSlice)
+          return false;
+        size = readU64Be(sizeExtensionSlice);
+        headerSize = 16;
+      }
+      if (size < headerSize) {
+        return false;
+      }
+      const fourCc = readAscii(slice, 4);
+      if (fourCc === "moof" || fourCc === "sidx") {
+        return true;
+      } else if (fourCc === "emsg" || fourCc === "prft" || fourCc === "free") {
+        pos += size;
+      } else {
+        return false;
+      }
+    }
+    return false;
   }
   get name() {
     return "MP4";
@@ -18194,7 +18869,7 @@ class MatroskaInputFormat extends InputFormat {
   /** @internal */
   async isSupportedEBMLOfDocType(input, desiredDocType) {
     let headerSlice = input._reader.requestSlice(0, MAX_HEADER_SIZE);
-    if (headerSlice instanceof Promise)
+    if (isThenable(headerSlice))
       headerSlice = await headerSlice;
     if (!headerSlice)
       return false;
@@ -18214,7 +18889,7 @@ class MatroskaInputFormat extends InputFormat {
       return false;
     }
     let dataSlice = input._reader.requestSlice(headerSlice.filePos, dataSize);
-    if (dataSlice instanceof Promise)
+    if (isThenable(dataSlice))
       dataSlice = await dataSlice;
     if (!dataSlice)
       return false;
@@ -18298,7 +18973,7 @@ class Mp3InputFormat extends InputFormat {
     let currentPos = 0;
     while (true) {
       let slice2 = input._reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-      if (slice2 instanceof Promise)
+      if (isThenable(slice2))
         slice2 = await slice2;
       if (!slice2)
         break;
@@ -18315,7 +18990,7 @@ class Mp3InputFormat extends InputFormat {
     const firstHeader = firstResult.header;
     const xingOffset = getXingOffset(firstHeader.mpegVersionId, firstHeader.channel);
     let slice = input._reader.requestSlice(firstResult.startPos + xingOffset, 4);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18350,7 +19025,7 @@ class WaveInputFormat extends InputFormat {
   /** @internal */
   async _canReadInput(input) {
     let slice = input._reader.requestSlice(0, 12);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18377,7 +19052,7 @@ class OggInputFormat extends InputFormat {
   /** @internal */
   async _canReadInput(input) {
     let slice = input._reader.requestSlice(0, 4);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18400,7 +19075,7 @@ class FlacInputFormat extends InputFormat {
     let currentPos = 0;
     while (true) {
       let slice2 = input._reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-      if (slice2 instanceof Promise)
+      if (isThenable(slice2))
         slice2 = await slice2;
       if (!slice2)
         break;
@@ -18411,7 +19086,7 @@ class FlacInputFormat extends InputFormat {
       currentPos = slice2.filePos + id3V2Header.size;
     }
     let slice = input._reader.requestSlice(currentPos, 4);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18434,7 +19109,7 @@ class AdtsInputFormat extends InputFormat {
     let currentPos = 0;
     while (true) {
       let slice2 = input._reader.requestSlice(currentPos, ID3_V2_HEADER_SIZE);
-      if (slice2 instanceof Promise)
+      if (isThenable(slice2))
         slice2 = await slice2;
       if (!slice2)
         break;
@@ -18445,7 +19120,7 @@ class AdtsInputFormat extends InputFormat {
       currentPos = slice2.filePos + id3V2Header.size;
     }
     let slice = input._reader.requestSliceRange(currentPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18455,7 +19130,7 @@ class AdtsInputFormat extends InputFormat {
     }
     currentPos += firstHeader.frameLength;
     slice = input._reader.requestSliceRange(currentPos, MIN_ADTS_FRAME_HEADER_SIZE, MAX_ADTS_FRAME_HEADER_SIZE);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18481,7 +19156,7 @@ class MpegTsInputFormat extends InputFormat {
   async _canReadInput(input) {
     const lengthToCheck = TS_PACKET_SIZE + 16 + 1;
     let slice = input._reader.requestSlice(0, lengthToCheck);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -18510,7 +19185,7 @@ class HlsInputFormat extends InputFormat {
   /** @internal */
   async _canReadInput(input) {
     let slice = input._reader.requestSlice(0, 7);
-    if (slice instanceof Promise)
+    if (isThenable(slice))
       slice = await slice;
     if (!slice)
       return false;
@@ -19285,7 +19960,7 @@ class VideoSample {
     let dataPlanes;
     if (this._data instanceof VideoSampleResource) {
       let result = this._data.getDataPlanes();
-      if (result instanceof Promise)
+      if (isThenable(result))
         result = await result;
       if (!Array.isArray(result) || result.some((x) => !(x.data instanceof Uint8Array) || !Number.isInteger(x.stride) || x.stride < 0)) {
         throw new TypeError('getDataPlanes() must return an array of objects with a Uint8Array "data" property and a non-negative integer "stride" property.');
@@ -19372,7 +20047,7 @@ class VideoSample {
         throw new Error("Cannot convert a VideoSampleResource-backed VideoSample to VideoFrame if format is null.");
       }
       const planes = this._data.getDataPlanes();
-      if (planes instanceof Promise) {
+      if (isThenable(planes)) {
         throw new Error("Cannot convert a VideoSampleResource-backed VideoSample to VideoFrame if getDataPlanes() returns a promise.");
       }
       const size = planes.reduce((a, b) => a + b.data.byteLength, 0);
@@ -19721,7 +20396,7 @@ class VideoSample {
     };
     for (const transformer of registeredVideoSampleTransformers) {
       let result = transformer(this, description);
-      if (result instanceof Promise)
+      if (isThenable(result))
         result = await result;
       if (result !== null) {
         return result;
@@ -21150,8 +21825,10 @@ class Quality {
       // 64kbps base for Vorbis
       ac3: 384e3,
       // 384kbps base for AC-3
-      eac3: 192e3
+      eac3: 192e3,
       // 192kbps base for E-AC-3
+      dts: 768e3
+      // 768kbps base for DTS
     };
     const baseBitrate = baseRates[codec];
     if (!baseBitrate) {
@@ -21280,7 +21957,7 @@ const canEncodeVideo = async (codec, options = {}) => {
     throw new TypeError("bitrate must be a positive integer or a quality.");
   }
   validateVideoEncodingAdditionalOptions(codec, restOptions);
-  const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality({ bitrate: 1e6 });
+  const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality("medium");
   let candidates;
   try {
     candidates = buildVideoEncoderConfigs({
@@ -21386,7 +22063,7 @@ const canEncodeAudio = async (codec, options = {}) => {
     throw new TypeError("bitrate must be a positive integer.");
   }
   validateAudioEncodingAdditionalOptions(codec, restOptions);
-  const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality({ bitrate: 128e3 });
+  const resolvedQuality = resolveQuality(quality, bitrate) ?? new Quality("medium");
   const encoderConfig = buildAudioEncoderConfig({
     codec,
     numberOfChannels,
@@ -22521,18 +23198,22 @@ class VideoDecoderWrapper extends DecoderWrapper {
     this.raslSkipped = false;
   }
   close() {
-    var _a, _b;
+    var _a;
     if (this.customDecoder) {
       void this.customDecoderCallSerializer.call(() => this.customDecoder.close());
     } else {
       assert(this.decoder);
-      this.decoder.close();
-      (_a = this.alphaDecoder) == null ? void 0 : _a.close();
+      if (this.decoder.state !== "closed") {
+        this.decoder.close();
+      }
+      if (this.alphaDecoder && this.alphaDecoder.state !== "closed") {
+        this.alphaDecoder.close();
+      }
       this.colorQueue.forEach((x) => x.close());
       this.colorQueue.length = 0;
       this.alphaQueue.forEach((x) => x == null ? void 0 : x.close());
       this.alphaQueue.length = 0;
-      (_b = this.merger) == null ? void 0 : _b.close();
+      (_a = this.merger) == null ? void 0 : _a.close();
     }
     for (const sample of this.sampleQueue) {
       sample.close();
@@ -22781,7 +23462,10 @@ class VideoSampleSink extends BaseMediaSampleSink {
   /** @internal */
   async _createDecoder(onSample, onError) {
     if (!await this._track.canDecode()) {
-      throw new Error("This video track cannot be decoded by this browser. Make sure to check decodability before using a track.");
+      if (typeof VideoDecoder === "undefined") {
+        throw new Error(missingWebCodecsClassMessage("VideoDecoder"));
+      }
+      throw new Error("This video track cannot be decoded in this environment. Make sure to check decodability before using a track.");
     }
     const codec = await this._track.getCodec();
     const rotation = await this._track.getRotation();
@@ -23099,7 +23783,9 @@ class AudioDecoderWrapper extends DecoderWrapper {
       void this.customDecoderCallSerializer.call(() => this.customDecoder.close());
     } else {
       assert(this.decoder);
-      this.decoder.close();
+      if (this.decoder.state !== "closed") {
+        this.decoder.close();
+      }
     }
   }
 }
@@ -23278,7 +23964,10 @@ class AudioSampleSink extends BaseMediaSampleSink {
   /** @internal */
   async _createDecoder(onSample, onError) {
     if (!await this._track.canDecode()) {
-      throw new Error("This audio track cannot be decoded by this browser. Make sure to check decodability before using a track.");
+      if (typeof AudioDecoder === "undefined") {
+        throw new Error(missingWebCodecsClassMessage("AudioDecoder"));
+      }
+      throw new Error("This audio track cannot be decoded in this environment. Make sure to check decodability before using a track.");
     }
     const codec = await this._track.getCodec();
     const decoderConfig = await this._track.getDecoderConfig();
@@ -23702,7 +24391,7 @@ class InputTrack {
   }
 }
 const requireSync = (value, getterName, asyncName) => {
-  if (value instanceof Promise) {
+  if (isThenable(value)) {
     throw new Error(`'${getterName}' is deprecated and not available synchronously for this track. Use the preferred '${asyncName}()' instead.`);
   }
   return value;
@@ -23719,7 +24408,7 @@ const toValidatedPredicate = (predicate) => {
       return result2;
     };
     const result = predicate(track);
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then(handle);
     }
     return handle(result);
@@ -23950,6 +24639,100 @@ class InputVideoTrack extends InputTrack {
     assert(decoderConfig);
     return determineVideoPacketType(codec, decoderConfig, packet.data);
   }
+  /**
+   * Computes frame rate metrics for this video track, i.e. estimates the video's frame rate. Frame rate is never
+   * determined from file metadata (which is unreliable) but is always deduced directly from the actual frame
+   * timestamps.
+   */
+  async computeFrameRateMetrics(options = {}) {
+    if (!options || typeof options !== "object") {
+      throw new TypeError("options must be an object.");
+    }
+    if (options.targetPacketCount !== void 0 && (!Number.isFinite(options.targetPacketCount) || options.targetPacketCount < 0)) {
+      throw new TypeError("options.targetPacketCount must be a non-negative number.");
+    }
+    const timeResolution = await this.getTimeResolution();
+    const targetPacketCount = options.targetPacketCount ?? 256;
+    const sink = new EncodedPacketSink(this);
+    const timestamps = [];
+    let maxTimestamp = -Infinity;
+    let probedPacketCount = 0;
+    for await (const packet of sink.packets(void 0, void 0, { metadataOnly: true })) {
+      if (timestamps.length >= targetPacketCount && packet.timestamp >= maxTimestamp) {
+        break;
+      }
+      timestamps.push(packet.timestamp);
+      maxTimestamp = Math.max(maxTimestamp, packet.timestamp);
+      probedPacketCount++;
+    }
+    const ticks = new Float64Array(timestamps.length);
+    for (let i = 0; i < timestamps.length; i++) {
+      ticks[i] = Math.round(timestamps[i] * timeResolution);
+    }
+    ticks.sort();
+    let n = 1;
+    for (let i = 1; i < ticks.length; i++) {
+      if (ticks[i] !== ticks[n - 1]) {
+        ticks[n++] = ticks[i];
+      }
+    }
+    if (n < 2) {
+      return {
+        underlyingFrameRate: null,
+        bestGuessFrameRate: timeResolution,
+        minFrameRate: timeResolution,
+        maxFrameRate: timeResolution,
+        averageFrameRate: timeResolution,
+        medianFrameRate: timeResolution,
+        frameRateIsConstant: true,
+        probedPacketCount
+      };
+    }
+    const activeTicks = ticks.subarray(0, n);
+    const underlyingFrameRate = findUnderlyingFrameRate(activeTicks, timeResolution);
+    const unitRate = underlyingFrameRate ?? timeResolution;
+    const ticksPerFrame = underlyingFrameRate !== null ? timeResolution / underlyingFrameRate : null;
+    const histogram = /* @__PURE__ */ new Map();
+    let minDifference = Infinity;
+    let maxDifference = -Infinity;
+    let totalDifference = 0;
+    for (let i = 1; i < n; i++) {
+      const tickDifference = activeTicks[i] - activeTicks[i - 1];
+      const difference = ticksPerFrame !== null ? Math.max(1, Math.round(tickDifference / ticksPerFrame)) : tickDifference;
+      histogram.set(difference, (histogram.get(difference) ?? 0) + 1);
+      minDifference = Math.min(minDifference, difference);
+      maxDifference = Math.max(maxDifference, difference);
+      totalDifference += difference;
+    }
+    const differenceCount = n - 1;
+    const sortedDifferences = [...histogram.keys()].sort((a, b) => a - b);
+    const middleA = differenceCount - 1 >> 1;
+    const middleB = differenceCount >> 1;
+    let medianDifferenceA = 0;
+    let medianDifferenceB = 0;
+    let cumulativeCount = 0;
+    for (const difference of sortedDifferences) {
+      cumulativeCount += histogram.get(difference);
+      if (medianDifferenceA === 0 && cumulativeCount > middleA) {
+        medianDifferenceA = difference;
+      }
+      if (cumulativeCount > middleB) {
+        medianDifferenceB = difference;
+        break;
+      }
+    }
+    const medianFrameRate = (unitRate / medianDifferenceA + unitRate / medianDifferenceB) / 2;
+    return {
+      underlyingFrameRate,
+      bestGuessFrameRate: underlyingFrameRate !== null ? underlyingFrameRate : getBestGuessFrameRate(medianFrameRate),
+      minFrameRate: unitRate / maxDifference,
+      maxFrameRate: unitRate / minDifference,
+      averageFrameRate: unitRate * differenceCount / totalDifference,
+      medianFrameRate,
+      frameRateIsConstant: underlyingFrameRate !== null && minDifference === 1 && maxDifference === 1,
+      probedPacketCount
+    };
+  }
 }
 class InputAudioTrack extends InputTrack {
   /** @internal */
@@ -24077,7 +24860,7 @@ const toValidatedInputTrackQuery = (query) => {
         return bool;
       };
       const result = query.filter(track);
-      if (result instanceof Promise) {
+      if (isThenable(result)) {
         return result.then(handle);
       } else {
         return handle(result);
@@ -24091,7 +24874,7 @@ const toValidatedInputTrackQuery = (query) => {
         return value;
       };
       const result = query.sortBy(track);
-      if (result instanceof Promise) {
+      if (isThenable(result)) {
         return result.then(handle);
       } else {
         return handle(result);
@@ -24111,7 +24894,7 @@ const mergeInputTrackQueries = (queryA, queryB) => {
         }
         return ((_a2 = queryB == null ? void 0 : queryB.filter) == null ? void 0 : _a2.call(queryB, track)) ?? true;
       };
-      if (resultA instanceof Promise) {
+      if (isThenable(resultA)) {
         return resultA.then(handleResultA);
       } else {
         return handleResultA(resultA);
@@ -24127,7 +24910,7 @@ const mergeInputTrackQueries = (queryA, queryB) => {
           ...Array.isArray(resultB2) ? resultB2 : [resultB2]
         ];
       };
-      if (resultA instanceof Promise || resultB instanceof Promise) {
+      if (isThenable(resultA) || isThenable(resultB)) {
         return Promise.all([resultA, resultB]).then(([resultA2, resultB2]) => {
           return join(resultA2, resultB2);
         });
@@ -24141,7 +24924,7 @@ const queryInputTracks = async (tracks, query) => {
   let matched = tracks;
   if (query == null ? void 0 : query.filter) {
     const filterMatches = tracks.map((t) => query.filter(t));
-    const hasAsyncFilter = filterMatches.some((x) => x instanceof Promise);
+    const hasAsyncFilter = filterMatches.some((x) => isThenable(x));
     if (hasAsyncFilter) {
       const resolvedFilterMatches = await Promise.all(filterMatches);
       matched = tracks.filter((_, i) => resolvedFilterMatches[i]);
@@ -24153,7 +24936,7 @@ const queryInputTracks = async (tracks, query) => {
     return matched;
   }
   const sortValues = matched.map((t) => query.sortBy(t));
-  const hasAsyncSort = sortValues.some((x) => x instanceof Promise);
+  const hasAsyncSort = sortValues.some((x) => isThenable(x));
   const resolvedSortValues = hasAsyncSort ? await Promise.all(sortValues) : sortValues;
   return matched.map((track, i) => ({ track, sortValue: resolvedSortValues[i] })).sort((a, b) => {
     const aValues = Array.isArray(a.sortValue) ? a.sortValue : [a.sortValue];
@@ -24169,6 +24952,172 @@ const queryInputTracks = async (tracks, query) => {
     }
     return 0;
   }).map((x) => x.track);
+};
+const findUnderlyingFrameRate = (ticks, resolution) => {
+  const MAX_DENOMINATOR = 1e6;
+  const MIN_INLIER_RATIO = 0.98;
+  const DELTA_TOLERANCE = 1 + 1e-9;
+  const MAX_EFFECTIVE_FRAME_SPAN = 1e3;
+  const KNOWN_FRAME_RATES = [
+    12,
+    15,
+    20,
+    24e3 / 1001,
+    24,
+    25,
+    3e4 / 1001,
+    30,
+    48,
+    50,
+    6e4 / 1001,
+    60,
+    100,
+    12e4 / 1001,
+    120,
+    144,
+    240
+  ];
+  if (ticks.length < 2) {
+    return null;
+  }
+  const gaps = new Float64Array(ticks.length - 1);
+  for (let i = 1; i < ticks.length; i++) {
+    const gap = ticks[i] - ticks[i - 1];
+    if (!(gap > 0)) {
+      return null;
+    }
+    gaps[i - 1] = gap;
+  }
+  const sortedGaps = gaps.slice();
+  sortedGaps.sort();
+  let period = sortedGaps[Math.floor(sortedGaps.length * 0.05)];
+  for (let iteration = 0; iteration < 6; iteration++) {
+    let totalTicks2 = 0;
+    let totalFrames2 = 0;
+    for (const gap of gaps) {
+      const multiple = Math.max(1, Math.round(gap / period));
+      if (Math.abs(gap - multiple * period) >= DELTA_TOLERANCE) {
+        continue;
+      }
+      totalTicks2 += gap;
+      totalFrames2 += multiple;
+    }
+    if (totalFrames2 === 0) {
+      return null;
+    }
+    const refinedPeriod = totalTicks2 / totalFrames2;
+    if (Math.abs(refinedPeriod - period) <= 1e-12 * Math.max(1, period)) {
+      period = refinedPeriod;
+      break;
+    }
+    period = refinedPeriod;
+  }
+  let inlierCount = 0;
+  let totalTicks = 0;
+  let totalFrames = 0;
+  for (const gap of gaps) {
+    const multiple = Math.max(1, Math.round(gap / period));
+    if (Math.abs(gap - multiple * period) >= DELTA_TOLERANCE) {
+      continue;
+    }
+    inlierCount++;
+    totalTicks += gap;
+    totalFrames += multiple;
+  }
+  if (inlierCount / gaps.length < MIN_INLIER_RATIO) {
+    return null;
+  }
+  period = totalTicks / totalFrames;
+  const uncertainty = 1 / Math.min(totalFrames, MAX_EFFECTIVE_FRAME_SPAN);
+  const periodLo = Math.max(Number.EPSILON, period - uncertainty);
+  const periodHi = period + uncertainty;
+  const fpsLo = resolution / periodHi;
+  const fpsHi = resolution / periodLo;
+  const fittedFps = resolution / period;
+  let fps = null;
+  let bestKnownError = Infinity;
+  for (const candidate of KNOWN_FRAME_RATES) {
+    if (candidate < fpsLo || candidate > fpsHi) {
+      continue;
+    }
+    const error = Math.abs(candidate / fittedFps - 1);
+    if (error < bestKnownError) {
+      fps = candidate;
+      bestKnownError = error;
+    }
+  }
+  if (fps === null) {
+    const periodFraction = simplestFractionBetween(periodLo, periodHi, MAX_DENOMINATOR);
+    const fpsFraction = simplestFractionBetween(fpsLo, fpsHi, MAX_DENOMINATOR);
+    if (fpsFraction && (!periodFraction || fpsFraction.den < periodFraction.den || fpsFraction.den === periodFraction.den && fpsFraction.num <= periodFraction.num)) {
+      fps = fpsFraction.num / fpsFraction.den;
+    } else if (periodFraction) {
+      fps = resolution * periodFraction.den / periodFraction.num;
+    } else {
+      return null;
+    }
+  }
+  const finalPeriod = resolution / fps;
+  let finalInlierCount = 0;
+  for (const gap of gaps) {
+    const multiple = Math.max(1, Math.round(gap / finalPeriod));
+    if (Math.abs(gap - multiple * finalPeriod) < DELTA_TOLERANCE) {
+      finalInlierCount++;
+    }
+  }
+  if (finalInlierCount / gaps.length < MIN_INLIER_RATIO) {
+    return null;
+  }
+  return fps;
+};
+const simplestFractionBetween = (lo, hi, maxDenominator) => {
+  for (let den = 1; den <= maxDenominator; den++) {
+    const num = Math.floor(lo * den) + 1;
+    if (num / den < hi) {
+      return simplifyRational({ num, den });
+    }
+  }
+  return null;
+};
+const getBestGuessFrameRate = (frameRate) => {
+  const SPECIAL_FRAME_RATES = [
+    24 / 1.001,
+    30 / 1.001,
+    60 / 1.001,
+    120 / 1.001
+  ];
+  const COMMON_FRAME_RATES = [
+    12,
+    15,
+    20,
+    24,
+    25,
+    30,
+    48,
+    50,
+    60,
+    100,
+    120,
+    144,
+    240
+  ];
+  const SPECIAL_TOLERANCE = 5e-4;
+  const COMMON_TOLERANCE = 0.025;
+  for (const candidate of SPECIAL_FRAME_RATES) {
+    if (Math.abs(candidate / frameRate - 1) <= SPECIAL_TOLERANCE) {
+      return candidate;
+    }
+  }
+  let best = frameRate;
+  let bestError = Infinity;
+  for (const candidate of COMMON_FRAME_RATES) {
+    const error = Math.abs(candidate / frameRate - 1);
+    if (error <= COMMON_TOLERANCE && error < bestError) {
+      best = candidate;
+      bestError = error;
+    }
+  }
+  return best;
 };
 /*!
  * Copyright (c) 2026-present, Vanilagy and contributors
@@ -24567,7 +25516,7 @@ class Reader {
     }
     const end = start + length;
     const result = this.source._read(start, end, DEFAULT_MIN_READ_POSITION, DEFAULT_MAX_READ_POSITION);
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then((x) => {
         if (!x) {
           return null;
@@ -24599,7 +25548,7 @@ class Reader {
         assert(this.fileSizeNonStrict !== null);
         return this.requestSlice(start, clamp(this.fileSizeNonStrict - start, minLength, maxLength));
       };
-      if (promisedAttempt instanceof Promise) {
+      if (isThenable(promisedAttempt)) {
         return promisedAttempt.then(handleAttempt);
       } else {
         return handleAttempt(promisedAttempt);
@@ -24619,7 +25568,7 @@ class Reader {
           return this.requestSlice(0, this.fileSizeNonStrict);
         }
         let slice = this.requestSliceRange(currentSize, 0, CHUNK_SIZE);
-        if (slice instanceof Promise)
+        if (isThenable(slice))
           slice = await slice;
         if (!slice || slice.length === 0) {
           break;
@@ -26724,7 +27673,7 @@ const stsd = (trackData) => {
   if (trackData.type === "video") {
     sampleDescription = videoSampleDescription(videoCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec), trackData);
   } else if (trackData.type === "audio") {
-    const boxName = audioCodecToBoxName(trackData.track.source._codec, trackData.muxer.isQuickTime);
+    const boxName = audioCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec, trackData.muxer.isQuickTime);
     assert(boxName);
     sampleDescription = soundSampleDescription(boxName, trackData);
   } else if (trackData.type === "subtitle") {
@@ -27010,7 +27959,7 @@ const wave = (trackData) => {
 };
 const frma = (trackData) => {
   return box("frma", [
-    ascii(audioCodecToBoxName(trackData.track.source._codec, trackData.muxer.isQuickTime))
+    ascii(audioCodecToBoxName(trackData.track.source._codec, trackData.info.decoderConfig.codec, trackData.muxer.isQuickTime))
   ]);
 };
 const enda = (trackData) => {
@@ -27128,6 +28077,14 @@ const dec3 = (trackData) => {
     }
   }
   return box("dec3", [...bytes2]);
+};
+const ddts = (trackData) => {
+  assert(trackData.info.primingPacket);
+  const frameInfo = parseDtsFrame(trackData.info.primingPacket.data);
+  if (!frameInfo) {
+    throw new Error("Couldn't extract DTS frame info from the audio packet. Ensure the packets contain valid DTS frames as specified in ETSI TS 102 114.");
+  }
+  return box("ddts", [...buildDtsSpecificBox(frameInfo)]);
 };
 const subtitleSampleDescription = (compressionType, trackData) => box(compressionType, [
   Array(6).fill(0),
@@ -27740,7 +28697,7 @@ const VIDEO_CODEC_TO_CONFIGURATION_BOX = {
   av1: av1C,
   prores: null
 };
-const audioCodecToBoxName = (codec, isQuickTime) => {
+const audioCodecToBoxName = (codec, fullCodecString, isQuickTime) => {
   switch (codec) {
     case "aac":
       return "mp4a";
@@ -27764,6 +28721,8 @@ const audioCodecToBoxName = (codec, isQuickTime) => {
       return "ac-3";
     case "eac3":
       return "ec-3";
+    case "dts":
+      return fullCodecString;
   }
   if (isQuickTime) {
     switch (codec) {
@@ -27829,6 +28788,8 @@ const audioCodecToConfigurationBox = (codec, isQuickTime) => {
       return dac3;
     case "eac3":
       return dec3;
+    case "dts":
+      return ddts;
   }
   if (isQuickTime) {
     switch (codec) {
@@ -28743,14 +29704,17 @@ class IsobmffMuxer extends Muxer {
       }
       decoderConfig.description = buildAacAudioSpecificConfig({
         objectType: adtsFrame.objectType,
-        sampleRate,
-        numberOfChannels
+        outputSampleRate: sampleRate,
+        outputNumberOfChannels: numberOfChannels
       });
       requiresAdtsStripping = true;
     }
-    if (track.source._codec === "ac3" || track.source._codec === "eac3") {
-      if (!packet) {
+    if (!packet) {
+      if (track.source._codec === "ac3" || track.source._codec === "eac3") {
         throw new Error("AC-3/E-AC-3 require a priming packet.");
+      }
+      if (track.source._codec === "dts") {
+        throw new Error("DTS requires a priming packet.");
       }
     }
     const newTrackData = {
@@ -29678,8 +30642,15 @@ class MatroskaMuxer extends Muxer {
     const tracksElement = { id: EBMLId.Tracks, data: [] };
     this.tracksElement = tracksElement;
     for (const trackData of this.trackDatas) {
-      const codecId = CODEC_STRING_MAP[trackData.track.source._codec];
+      let codecId = CODEC_STRING_MAP[trackData.track.source._codec];
       assert(codecId);
+      if (trackData.type === "audio" && trackData.track.source._codec === "dts") {
+        if (trackData.info.decoderConfig.codec === "dtse") {
+          codecId = "A_DTS/EXPRESS";
+        } else if (trackData.info.decoderConfig.codec === "dtsl") {
+          codecId = "A_DTS/LOSSLESS";
+        }
+      }
       let seekPreRollNs = 0;
       if (trackData.type === "audio" && trackData.track.source._codec === "opus") {
         seekPreRollNs = 1e6 * 80;
@@ -30097,8 +31068,8 @@ class MatroskaMuxer extends Muxer {
       }
       decoderConfig.description = buildAacAudioSpecificConfig({
         objectType: adtsFrame.objectType,
-        sampleRate,
-        numberOfChannels
+        outputSampleRate: sampleRate,
+        outputNumberOfChannels: numberOfChannels
       });
       requiresAdtsStripping = true;
     }
@@ -31169,7 +32140,7 @@ class MpegTsMuxer extends Muxer {
     validateAudioChunkMetadata(meta, track.source._codec);
     assert(meta == null ? void 0 : meta.decoderConfig);
     const codec = track.source._codec;
-    assert(codec === "aac" || codec === "mp3" || codec === "ac3" || codec === "eac3");
+    assert(codec === "aac" || codec === "mp3" || codec === "ac3" || codec === "eac3" || codec === "dts");
     let streamType;
     let streamId;
     switch (codec) {
@@ -31194,6 +32165,12 @@ class MpegTsMuxer extends Muxer {
       case "eac3":
         {
           streamType = 135;
+          streamId = 189;
+        }
+        break;
+      case "dts":
+        {
+          streamType = 130;
           streamId = 189;
         }
         break;
@@ -31349,7 +32326,7 @@ class MpegTsMuxer extends Muxer {
   prepareAudioPacket(trackData, packet, meta) {
     var _a;
     const codec = trackData.track.source._codec;
-    if (codec === "mp3" || codec === "ac3" || codec === "eac3") {
+    if (codec === "mp3" || codec === "ac3" || codec === "eac3" || codec === "dts") {
       return packet.data;
     }
     if (trackData.inputIsAdts === null) {
@@ -32466,7 +33443,7 @@ class VideoEncoderWrapper {
     let samplesToEncode;
     if ((_a = config.transform) == null ? void 0 : _a.process) {
       let processed = config.transform.process(videoSample);
-      if (processed instanceof Promise) {
+      if (isThenable(processed)) {
         processed = await processed;
       }
       if (processed === null) {
@@ -32677,11 +33654,11 @@ class VideoEncoderWrapper {
       }
       if (!selected) {
         if (typeof VideoEncoder === "undefined") {
-          throw new Error("VideoEncoder is not supported by this browser.");
+          throw new Error(missingWebCodecsClassMessage("VideoEncoder"));
         }
         const firstConfig = candidates[0].config;
         const rateControls = candidates.map(({ config, quantizer }) => quantizer !== null ? `quantizer ${quantizer}` : `${config.bitrate} bps`);
-        throw new Error(`This specific encoder configuration (${firstConfig.codec}, ${rateControls.join(" / ")}, ${firstConfig.width}x${firstConfig.height}, hardware acceleration: ${firstConfig.hardwareAcceleration ?? "no-preference"}) is not supported by this browser. Consider using another codec or changing your video parameters.`);
+        throw new Error(`This specific encoder configuration (${firstConfig.codec}, ${rateControls.join(" / ")}, ${firstConfig.width}x${firstConfig.height}, hardware acceleration: ${firstConfig.hardwareAcceleration ?? "no-preference"}) is not supported in this environment. Consider using another codec or changing your video parameters.`);
       }
       const encoderConfig = selected.config;
       if (selected.quantizer !== null) {
@@ -33323,7 +34300,7 @@ class MediaStreamVideoTrackSource extends VideoSource {
           this._promiseWithResolvers.reject(error);
         });
       } else {
-        throw new Error("When no explicit frame rate is set, MediaStreamTrackProcessor is required; but it's not supported by this browser.");
+        throw new Error("When no explicit frame rate is set, MediaStreamTrackProcessor is required; but it's not available in this environment.");
       }
     }
   }
@@ -33496,7 +34473,7 @@ class AudioEncoderWrapper {
     if ((_b = config.transform) == null ? void 0 : _b.process) {
       try {
         let processed = config.transform.process(audioSample);
-        if (processed instanceof Promise) {
+        if (isThenable(processed)) {
           processed = await processed;
         }
         if (processed === null) {
@@ -33684,7 +34661,7 @@ class AudioEncoderWrapper {
         this.initPcmEncoder();
       } else {
         if (typeof AudioEncoder === "undefined") {
-          throw new Error("AudioEncoder is not supported by this browser.");
+          throw new Error(missingWebCodecsClassMessage("AudioEncoder"));
         }
         let supported;
         try {
@@ -33694,7 +34671,7 @@ class AudioEncoderWrapper {
           supported = false;
         }
         if (!supported) {
-          throw new Error(`This specific encoder configuration (${encoderConfig.codec}, ${encoderConfig.bitrate} bps, ${encoderConfig.numberOfChannels} channels, ${encoderConfig.sampleRate} Hz) is not supported by this browser. Consider using another codec or changing your audio parameters.`);
+          throw new Error(`This specific encoder configuration (${encoderConfig.codec}, ${encoderConfig.bitrate} bps, ${encoderConfig.numberOfChannels} channels, ${encoderConfig.sampleRate} Hz) is not supported in this environment. Consider using another codec or changing your audio parameters.`);
         }
         const stack = new Error("Encoding error").stack;
         this.encoder = new AudioEncoder({
@@ -33712,8 +34689,8 @@ class AudioEncoderWrapper {
                 const objectType = Number(last(encoderConfig.codec.split(".")));
                 meta.decoderConfig.description = buildAacAudioSpecificConfig({
                   objectType,
-                  numberOfChannels: meta.decoderConfig.numberOfChannels,
-                  sampleRate: meta.decoderConfig.sampleRate
+                  outputNumberOfChannels: meta.decoderConfig.numberOfChannels,
+                  outputSampleRate: meta.decoderConfig.sampleRate
                 });
               }
             }
@@ -35903,7 +36880,7 @@ class MpegTsOutputFormat extends OutputFormat {
   getSupportedCodecs() {
     return [
       ...VIDEO_CODECS.filter((codec) => ["avc", "hevc"].includes(codec)),
-      ...AUDIO_CODECS.filter((codec) => ["aac", "mp3", "ac3", "eac3"].includes(codec))
+      ...AUDIO_CODECS.filter((codec) => ["aac", "mp3", "ac3", "eac3", "dts"].includes(codec))
     ];
   }
   get supportsVideoRotationMetadata() {
@@ -36135,7 +37112,7 @@ class Output extends EventEmitter {
       throw new TypeError(errorMessage);
     }
     const rootTargetResult = this._getRootTarget();
-    if (rootTargetResult instanceof Promise) {
+    if (isThenable(rootTargetResult)) {
       throw new TypeError(errorMessage);
     }
     return rootTargetResult;
@@ -36197,7 +37174,7 @@ class Output extends EventEmitter {
       }
       return result2;
     };
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return result.then(handleResult);
     } else {
       return handleResult(result);
@@ -36267,7 +37244,7 @@ class Output extends EventEmitter {
       this._rootTarget = target;
       return target;
     };
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
       return this._rootTargetPromise = result.then(handleResult);
     } else {
       return handleResult(result);
@@ -37865,4 +38842,4 @@ export {
   registerEncoder,
   registerVideoSampleTransformer
 };
-//# sourceMappingURL=index-CEiRlEKx.mjs.map
+//# sourceMappingURL=index-6AXSwC3O.mjs.map

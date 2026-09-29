@@ -19,13 +19,14 @@ Typical asks:
 
 ## No API keys, by design
 
-The bot does not talk to any cloud model API directly and ComfyTV never stores a key. Instead it drives an **agent CLI already installed on your machine** using that CLI's own login — or, with the Local LLM and ComfyUI LLM providers, a **model running on your own hardware**. Five providers ship today:
+The bot does not talk to any cloud model API directly and ComfyTV never stores a key. Instead it drives an **agent CLI already installed on your machine** using that CLI's own login — or, with the Local LLM and ComfyUI LLM providers, a **model running on your own hardware**. Six providers ship today:
 
 | Provider | Install | Sign in | Attachments |
 | --- | --- | --- | --- |
 | [Claude Code](https://claude.com/claude-code) | `npm install -g @anthropic-ai/claude-code` | run `claude`, log in once | images / video / audio |
 | [Codex](https://developers.openai.com/codex) | `npm install -g @openai/codex` | `codex login` | images / video / audio |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/) | official install script (see its docs) | run `qwen`, then `/auth` | not yet |
+| DeepSeek Harness | the DeepSeek Harness desktop app | sign in inside the app | images, on vision models |
 | Local LLM | any OpenAI-compatible local server | none — set the endpoint URL in Settings | not yet |
 | ComfyUI LLM | a Qwen3- or Gemma-family checkpoint in `models/text_encoders` | none | not yet |
 
@@ -36,7 +37,7 @@ Prerequisites:
 
 The bar above the chat picks the engine (and, per engine, the model) for new chats; a chat keeps the engine it started with, so switching the engine starts a new chat. A red dot on the engine chip means it is not installed or not signed in — hover it for the reason.
 
-Provider isolation is per-engine: Claude Code runs with a strict per-turn MCP config and a tool whitelist; Codex runs `codex exec` sandboxed to the bot's working directory with shell and web search disabled, every MCP server except ComfyTV's turned off, and its localhost canvas-tool approvals routed through Codex's automatic reviewer (headless runs cannot prompt); Qwen Code runs against a project-scoped `.qwen/settings.json` inside the bot's working directory (ComfyTV MCP server only, built-in shell/file tools excluded) — your global CLI configuration is never touched.
+Provider isolation is per-engine: Claude Code runs with a strict per-turn MCP config and a tool whitelist; Codex runs `codex exec` sandboxed to the bot's working directory with shell and web search disabled, every MCP server except ComfyTV's turned off, and its localhost canvas-tool approvals routed through Codex's automatic reviewer (headless runs cannot prompt); Qwen Code runs against a project-scoped `.qwen/settings.json` inside the bot's working directory (ComfyTV MCP server only, built-in shell/file tools excluded); DeepSeek Harness runs through the ACP runtime bundled in its desktop app with a dedicated profile whose every built-in tool plugin is disabled and whose approval policy never prompts — your global CLI configuration and the app's own settings are never touched.
 
 ## Local LLM provider
 
@@ -60,6 +61,28 @@ Compared to the Local LLM provider:
 - Tool calls use the Hermes convention Qwen3 was trained on (`<tool_call>` blocks), rendered and parsed by ComfyTV.
 - Turns are served one at a time from an OpenAI-compatible shim at `/comfytv/llm/v1` (non-streaming) — other local apps on your machine may point at it too while the bot is enabled.
 
+## DeepSeek Harness provider
+
+The DeepSeek Harness provider drives the **DeepSeek Harness desktop app** you already installed, through the ACP runtime bundled inside it. ComfyTV never talks to the app's private IPC and never needs a second Harness install: it launches the bundled runtime as a child process, one per turn, and reuses the app's own login. Finder path is discovered automatically (`/Applications/DeepSeek Harness.app`, then `~/Applications`); override it under **Settings → Agent & MCP → DeepSeek Harness app**.
+
+Setup:
+
+1. Install and open the DeepSeek Harness desktop app, and sign in there.
+2. In ComfyTV **Settings → Agent & MCP**, choose **DeepSeek Harness sign-in**:
+   - **Desktop account** (the default) reuses the account you signed into the app.
+   - **API key** uses the `DEEPSEEK_API_KEY` credential the Harness app already stores.
+
+Those two routes are billed to different payers, so the provider never switches between them on its own: if the desktop-account route has no model available you get an error telling you to sign in or change the setting, instead of a silent move to the API key. The model menu names the route next to each entry.
+
+Details worth knowing:
+
+- **Sessions**: each chat gets its own Harness session in the app's store and is resumed per turn, so context survives a ComfyTV restart. Branching a chat is refused for this provider — ACP cannot fork a session, so a branch would otherwise share one with its source.
+- **Tool isolation**: every built-in tool plugin (shell, files, web, sub-agents, workflow runner, todos, goals) is disabled for bot turns, and the profile's approval policy never prompts the desktop UI. The agent's only reachable tools are the ComfyTV MCP server's, so workflow runs follow ComfyTV's run-permission setting.
+- **Model**: leaving the model blank picks the first model on the configured sign-in route, read from the runtime's own catalog. Model values are opaque strings the runtime issues; ComfyTV stores and replays them exactly, and never invents one.
+- **Attachments**: images are sent only when the runtime reports that the selected model accepts image input; otherwise the message is refused before it is sent rather than dropping the image silently. Note that the DeepSeek models this provider can currently reach report **no** image support, so attaching an image to a DeepSeek Harness chat will be refused with an explanatory error — use a provider that accepts images, or the asset library and canvas tools. ACP does not carry video or audio at all.
+- **History**: deleting a ComfyTV chat does not delete its upstream Harness session (ACP has no session deletion), so those sessions accumulate in the Harness app's own session store. They are inert; removing them is a Harness-side housekeeping task.
+- **Files**: bot working directories live under ComfyUI's user directory in `comfytv/bot-home-deepseek-harness/chats/<chat id>`; the `comfytv-acp` profile is created under your Harness home (`~/.dsh/profiles`) on first use. ComfyTV does not copy or store desktop credentials.
+
 ## Using the panel
 
 - **Canvas**: the bot always works on the tab on screen; switch tabs and it follows.
@@ -74,7 +97,7 @@ Compared to the Local LLM provider:
 
 ## How it works, briefly
 
-Each turn spawns a fresh CLI process in headless mode, locked down to the ComfyTV MCP server (`--strict-mcp-config`, tools whitelisted to `mcp__comfytv__*`), resuming the chat's session for continuity. The conversation state lives with the CLI; ComfyTV's database keeps a display mirror of the transcript. Canvas writes still follow MCP rules — an open ComfyTV page executes them, whether it is in Comfy Desktop or a browser.
+CLI providers spawn a fresh headless process per turn and resume the chat's session. DeepSeek Harness uses its bundled ACP runtime with a dedicated profile and per-turn tool restrictions. ComfyTV's database keeps a display mirror of the transcript. Canvas writes still follow MCP rules — an open ComfyTV page executes them, whether it is in Comfy Desktop or a browser.
 
 ## Troubleshooting
 

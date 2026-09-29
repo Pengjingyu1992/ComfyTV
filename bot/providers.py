@@ -62,6 +62,10 @@ EmitFn = Callable[[BotEvent], Awaitable[None]]
 class AgentProvider(ABC):
     id: str = ""
     label: str = ""
+    #: Set to False when the upstream agent session cannot be forked.  ComfyTV's
+    #: chat branching copies `resume_token`, so branching such a chat would make
+    #: two chats drive one upstream session; the API refuses it instead.
+    supports_branch: bool = True
 
     @abstractmethod
     async def probe(self) -> ProviderStatus: ...
