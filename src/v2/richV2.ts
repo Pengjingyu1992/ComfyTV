@@ -152,7 +152,7 @@ const CONFIGS: Record<string, FxShellConfig> = {
   'ComfyTV.InpaintStage': {
     titleKey: 'v2.rich.inpaint', icon: ICON_INPAINT,
     card: markRaw(PainterStageCard), hasRun: true, plain: true, outputKind: 'image',
-    prompt: true, linkKind: 'inpaint', minH: 620,
+    prompt: true, refTypes: ['image'], linkKind: 'inpaint', minH: 620,
   },
   'ComfyTV.OutpaintStage': {
     titleKey: 'v2.rich.outpaint', icon: ICON_OUTPAINT,

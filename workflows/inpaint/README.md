@@ -6,7 +6,8 @@ Workflows in this folder appear in the **Inpaint** dropdown. The user paints a m
 
 ## Stage inputs
 
-- **Source image** (required) — from upstream.
+- **Source image** (required) — the first image on the media strip (wired or an asset); the mask is painted on it.
+- **Reference images** (optional) — the media strip's second image onward, referenced in the prompt as `@image_2`..; only workflows that take references use them.
 - **Mask** (required) — painted by the user with the painter widget.
 - **Prompt** — what the masked region should become.
 - **Random seed**.
@@ -27,6 +28,7 @@ To add your own workflow see [docs/custom-workflows.md](../../docs/custom-workfl
 
 - **Flux Fill Inpaint** (`flux-fill-inpaint.json` + `_preset.json`) — Flux Fill Dev fp8 inpaint, subgraph workflow. Tested working. **No third-party plugins required.**
 - **Fooocus SDXL Inpaint** (`fooocus-sdxl-inpaint.json` + `_preset.json`) — Adapted from Acly's `comfyui-inpaint-nodes` plugin `inpaint-refine.json` template. SDXL base + Fooocus inpaint head/patch. **Requires the plugin installed + extra model files** — see "Optional: Fooocus variant" below.
+- **Qwen Image 2.1 Inpaint** (`qwen-image-2.1-inpaint.json` + `_preset.json`) — mask inpaint with up to 9 reference images. The source is scaled to ~1MP, the painted area is filled with gray and sent to `TextEncodeQwenImage21` as `<image1>`, references follow as `<image2>`..; `SetLatentNoiseMask` regenerates only the painted area and the result is feathered back onto the full-size original, so pixels outside the mask are unchanged. Unused reference slots are pruned. Same models as Image Edit's Qwen Image 2.1 Edit. **No third-party plugins required.** Tested working.
 
 ## Models referenced
 

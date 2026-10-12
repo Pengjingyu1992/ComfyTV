@@ -43,6 +43,8 @@
 !inpaint/flux-fill-inpaint_preset.json
 !inpaint/fooocus-sdxl-inpaint.json
 !inpaint/fooocus-sdxl-inpaint_preset.json
+!inpaint/qwen-image-2.1-inpaint.json
+!inpaint/qwen-image-2.1-inpaint_preset.json
 !material-estimate/qwen3vl-estimate.json
 !material-estimate/qwen3vl-estimate_preset.json
 !model/hunyuan3d-21.json

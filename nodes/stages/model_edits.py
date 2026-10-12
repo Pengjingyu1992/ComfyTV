@@ -118,7 +118,7 @@ class InpaintStage(io.ComfyNode):
                                 socketless=True, extra_dict={"hidden": True},
                                 ),
                 _main_prompt_input(placeholder="Describe what should appear in the masked region (e.g. 'a wooden chair', 'an empty wall').", ),
-                COMFYTV_IMAGE.Input("image", optional=True),
+                io.Autogrow.Input("images", template=_image_template(12)),
                 _custom_params_input(),
             ],
             outputs=[COMFYTV_IMAGE.Output("image")],
@@ -128,7 +128,7 @@ class InpaintStage(io.ComfyNode):
 
     @classmethod
     async def execute(cls, force_run_token=0, project_id="", parent_output_id=0,
-                      workflow="", mask_data="", main_prompt="", image="", custom_params="{}"):
+                      workflow="", mask_data="", main_prompt="", images=None, custom_params="{}"):
         return await run_stage_workflow(
             cls,
             custom_params=custom_params,
@@ -137,7 +137,7 @@ class InpaintStage(io.ComfyNode):
             project_id=project_id,
             parent_output_id=parent_output_id,
             main_prompt=main_prompt,
-            upstream={'images': [image] if image else []},
+            upstream={'images': _autogrow_values(images)},
             options={'mask_data': mask_data or ''},
         )
 

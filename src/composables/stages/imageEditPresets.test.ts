@@ -13,7 +13,8 @@ describe('IMAGE_EDIT_PRESETS', () => {
   })
   it('all wire image input', () => {
     for (const p of IMAGE_EDIT_PRESETS) {
-      expect(p.inputSocket).toBe('image')
+      if (p.id === 'inpaint') expect(p.inputAutogrowGroup).toBe('images')
+      else expect(p.inputSocket).toBe('image')
     }
   })
   it('includes expected stages', () => {

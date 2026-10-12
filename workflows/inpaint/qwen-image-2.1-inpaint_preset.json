@@ -1,0 +1,173 @@
+{
+  "label": "Qwen Image 2.1 Inpaint",
+  "order": 20,
+  "description": "Mask inpaint via Qwen Image 2.1 with up to 9 reference images: image 1 is the painted target, the rest are references (@image_2..@image_10, sent to the model as <image2>..). Outside the mask the original pixels are kept.",
+  "result": {
+    "type": "ui_save_url",
+    "node": "9"
+  },
+  "meta": {
+    "mention_style": "qwen_tags"
+  },
+  "inputs": {
+    "11": {
+      "image": {
+        "from": "upstream_image:annotated[0]",
+        "required": true,
+        "error": "Inpaint needs a target image - wire one in or add it with + on the card; image 1 is the one that gets painted."
+      }
+    },
+    "21": {
+      "image": {
+        "from": "option:mask_data",
+        "required": true,
+        "error": "Inpaint needs a mask - paint the area you want to change before running."
+      },
+      "channel": {
+        "from": "literal:alpha"
+      }
+    },
+    "6": {
+      "prompt": {
+        "from": "main_prompt",
+        "required": true,
+        "error": "Describe what goes into the painted area - e.g. 'the figurine from @image_2 standing on the rocks'."
+      }
+    },
+    "7": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    },
+    "12": {
+      "image": {
+        "from": "upstream_image:annotated[1]"
+      }
+    },
+    "13": {
+      "image": {
+        "from": "upstream_image:annotated[2]"
+      }
+    },
+    "14": {
+      "image": {
+        "from": "upstream_image:annotated[3]"
+      }
+    },
+    "15": {
+      "image": {
+        "from": "upstream_image:annotated[4]"
+      }
+    },
+    "16": {
+      "image": {
+        "from": "upstream_image:annotated[5]"
+      }
+    },
+    "17": {
+      "image": {
+        "from": "upstream_image:annotated[6]"
+      }
+    },
+    "18": {
+      "image": {
+        "from": "upstream_image:annotated[7]"
+      }
+    },
+    "19": {
+      "image": {
+        "from": "upstream_image:annotated[8]"
+      }
+    },
+    "20": {
+      "image": {
+        "from": "upstream_image:annotated[9]"
+      }
+    }
+  },
+  "prune_when_missing": [
+    {
+      "when": "upstream_image:value[1]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_2"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[2]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_3"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[3]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_4"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[4]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_5"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[5]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_6"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[6]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_7"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[7]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_8"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[8]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_9"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[9]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image_10"
+        }
+      ]
+    }
+  ]
+}

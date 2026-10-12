@@ -3,6 +3,7 @@ import { h, watch, type Component } from 'vue'
 
 import MainPromptInput from '@/components/stages/MainPromptInput.vue'
 import StagePresetBar from '@/components/stages/StagePresetBar.vue'
+import type { MediaType } from '@/composables/stages/mediaOrder'
 import { useStageNode } from '@/composables/stages/useStageNode'
 import { t } from '@/i18n'
 import { app, type ComfyNode } from '@/lib/comfyApp'
@@ -11,6 +12,7 @@ import CustomParamsV2 from '@/v2/CustomParamsV2.vue'
 import FooterSelectsV2 from '@/v2/FooterSelectsV2.vue'
 import { attachOutputToolbar, type VideoToolbarFlavor } from '@/v2/outputToolbar'
 import MediaPreviewV2 from '@/v2/MediaPreviewV2.vue'
+import MediaStripV2 from '@/v2/MediaStripV2.vue'
 import ServerSelectV2 from '@/v2/ServerSelectV2.vue'
 import { createIslandGroup } from '@/v2/islands'
 import { bindNodeDrag } from '@/v2/nodeDrag'
@@ -37,6 +39,7 @@ export interface FxShellConfig {
   outputKind?: 'video' | 'image' | 'audio'
   outputStrip?: boolean
   prompt?: boolean
+  refTypes?: MediaType[]
   linkKind?: string
   minW?: number
   minH?: number
@@ -273,8 +276,13 @@ function attach(node: ComfyNode, kind: StageKind, variant: StageVariant, config:
   card.appendChild(embedAnchor)
 
   let promptAnchor: HTMLElement | null = null
+  let refsAnchor: HTMLElement | null = null
   if (config.prompt) {
     const promptPanel = el('div', 'v2-fx-promptpanel')
+    if (config.refTypes?.length) {
+      refsAnchor = el('div', 'v2-panel__refs')
+      promptPanel.appendChild(refsAnchor)
+    }
     promptAnchor = el('div', 'v2-panel__prompthost')
     promptPanel.appendChild(promptAnchor)
     card.appendChild(promptPanel)
@@ -366,6 +374,9 @@ function attach(node: ComfyNode, kind: StageKind, variant: StageVariant, config:
           }, embedAnchor],
     ]
     specs.push([StagePresetBar, { node }, presetAnchor])
+    if (refsAnchor) {
+      specs.push([MediaStripV2, { getNode: () => node, types: config.refTypes }, refsAnchor])
+    }
     if (promptAnchor) {
       specs.push([MainPromptInput, { node }, promptAnchor])
     }

@@ -1149,8 +1149,8 @@
       "main_prompt": {
         "tooltip": "重绘内容描述"
       },
-      "image": {
-        "name": "图像"
+      "images": {
+        "name": "图片"
       },
       "workflow": {
         "name": "工作流"

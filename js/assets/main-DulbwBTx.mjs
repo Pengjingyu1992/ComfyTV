@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-XyzEHk6u.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-ChOmRQFe.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -66661,7 +66661,7 @@ const ComfyTV_ImageLoaderStage$1 = { "display_name": "Load Image", "inputs": {},
 const ComfyTV_ImagePickerStage$1 = { "display_name": "Image Picker", "inputs": { "append_results": { "name": "Append results" }, "batch": { "name": "Batch" }, "pool": { "name": "Pool" }, "selected_index": { "name": "Selected index" } }, "outputs": { "0": { "name": "Image" } } };
 const ComfyTV_ImageStage$1 = { "display_name": "Image Stage", "inputs": { "aspect_ratio": { "name": "Aspect ratio" }, "batch_size": { "name": "Batch size" }, "image0": { "name": "Image #0" }, "image1": { "name": "Image #1" }, "image10": { "name": "Image #10" }, "image11": { "name": "Image #11" }, "image2": { "name": "Image #2" }, "image3": { "name": "Image #3" }, "image4": { "name": "Image #4" }, "image5": { "name": "Image #5" }, "image6": { "name": "Image #6" }, "image7": { "name": "Image #7" }, "image8": { "name": "Image #8" }, "image9": { "name": "Image #9" }, "images": { "name": "Images" }, "resolution": { "name": "Resolution" }, "text0": { "name": "Text #0" }, "text1": { "name": "Text #1" }, "text2": { "name": "Text #2" }, "text3": { "name": "Text #3" }, "text4": { "name": "Text #4" }, "text5": { "name": "Text #5" }, "text6": { "name": "Text #6" }, "text7": { "name": "Text #7" }, "texts": { "name": "Texts" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Images" }, "1": { "name": "Image" } } };
 const ComfyTV_ImageVariationsStage$1 = { "display_name": "Image Variations", "inputs": { "image": { "name": "Image" }, "variant_count": { "name": "Variant count" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Images" }, "1": { "name": "Image" } } };
-const ComfyTV_InpaintStage$1 = { "display_name": "Inpaint", "inputs": { "mask_data": { "tooltip": "Annotated path of the mask PNG, written by the painter on Run.", "name": "Mask" }, "main_prompt": { "tooltip": "What should appear in the masked region. Leave blank to use the workflow's default." }, "image": { "name": "Image" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Image" } } };
+const ComfyTV_InpaintStage$1 = { "display_name": "Inpaint", "inputs": { "mask_data": { "tooltip": "Annotated path of the mask PNG, written by the painter on Run.", "name": "Mask" }, "main_prompt": { "tooltip": "What should appear in the masked region. Leave blank to use the workflow's default." }, "images": { "name": "Images" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Image" } } };
 const ComfyTV_MirrorStage$1 = { "display_name": "Mirror", "inputs": { "flip_horizontal": { "name": "Flip horizontal" }, "flip_vertical": { "name": "Flip vertical" }, "image": { "name": "Image" } }, "outputs": { "0": { "name": "Image" } } };
 const ComfyTV_MultiangleStage$1 = { "display_name": "Multiangle", "inputs": { "horizontal_angle": { "tooltip": "Camera azimuth angle (0–360°).", "name": "Horizontal angle" }, "vertical_angle": { "tooltip": "Camera elevation angle (-30° to 60°).", "name": "Vertical angle" }, "zoom": { "tooltip": "Camera distance (0 = wide, 10 = close-up).", "name": "Zoom" }, "image": { "name": "Image" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Image" } } };
 const ComfyTV_OutpaintStage$1 = { "display_name": "Outpaint", "inputs": { "pad_left": { "tooltip": "Pixels to extend left.", "name": "Pad left" }, "pad_top": { "tooltip": "Pixels to extend top.", "name": "Pad top" }, "pad_right": { "tooltip": "Pixels to extend right.", "name": "Pad right" }, "pad_bottom": { "tooltip": "Pixels to extend bottom.", "name": "Pad bottom" }, "feathering": { "tooltip": "Mask feathering pixels.", "name": "Feathering" }, "main_prompt": { "tooltip": "Prompt: describe the WHOLE finished image (subject + scene + style + lighting), not what to add. Leave blank to use the workflow's generic descriptive default." }, "image": { "name": "Image" }, "workflow": { "name": "Workflow" } }, "outputs": { "0": { "name": "Image" } } };
@@ -67013,7 +67013,7 @@ const ComfyTV_ImageLoaderStage = { "display_name": "加载图片", "inputs": {},
 const ComfyTV_ImagePickerStage = { "display_name": "图片选择器", "inputs": { "append_results": { "name": "追加结果" }, "batch": { "name": "批次" }, "pool": { "name": "池" }, "selected_index": { "name": "选中索引" } }, "outputs": { "0": { "name": "图像" } } };
 const ComfyTV_ImageStage = { "display_name": "图像阶段", "inputs": { "aspect_ratio": { "name": "宽高比" }, "batch_size": { "name": "批次大小" }, "image0": { "name": "图像 #0" }, "image1": { "name": "图像 #1" }, "image10": { "name": "图像 #10" }, "image11": { "name": "图像 #11" }, "image2": { "name": "图像 #2" }, "image3": { "name": "图像 #3" }, "image4": { "name": "图像 #4" }, "image5": { "name": "图像 #5" }, "image6": { "name": "图像 #6" }, "image7": { "name": "图像 #7" }, "image8": { "name": "图像 #8" }, "image9": { "name": "图像 #9" }, "images": { "name": "图像" }, "resolution": { "name": "分辨率" }, "text0": { "name": "文本 #0" }, "text1": { "name": "文本 #1" }, "text2": { "name": "文本 #2" }, "text3": { "name": "文本 #3" }, "text4": { "name": "文本 #4" }, "text5": { "name": "文本 #5" }, "text6": { "name": "文本 #6" }, "text7": { "name": "文本 #7" }, "texts": { "name": "文本" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像组" }, "1": { "name": "图像" } } };
 const ComfyTV_ImageVariationsStage = { "display_name": "图像变体", "inputs": { "image": { "name": "图像" }, "variant_count": { "name": "变体数量" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像组" }, "1": { "name": "图像" } } };
-const ComfyTV_InpaintStage = { "display_name": "重绘", "inputs": { "mask_data": { "tooltip": "蒙版的 annotated path,由画笔 UI 上传后写入", "name": "蒙版" }, "main_prompt": { "tooltip": "重绘内容描述" }, "image": { "name": "图像" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像" } } };
+const ComfyTV_InpaintStage = { "display_name": "重绘", "inputs": { "mask_data": { "tooltip": "蒙版的 annotated path,由画笔 UI 上传后写入", "name": "蒙版" }, "main_prompt": { "tooltip": "重绘内容描述" }, "images": { "name": "图片" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像" } } };
 const ComfyTV_MirrorStage = { "display_name": "镜像", "inputs": { "flip_horizontal": { "name": "水平翻转" }, "flip_vertical": { "name": "垂直翻转" }, "image": { "name": "图像" } }, "outputs": { "0": { "name": "图像" } } };
 const ComfyTV_MultiangleStage = { "display_name": "多角度", "inputs": { "horizontal_angle": { "tooltip": "相机水平角度", "name": "水平角度" }, "vertical_angle": { "tooltip": "相机俯仰角度", "name": "俯仰角度" }, "zoom": { "tooltip": "相机距离", "name": "缩放" }, "image": { "name": "图像" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像" } } };
 const ComfyTV_OutpaintStage = { "display_name": "扩图", "inputs": { "pad_left": { "tooltip": "左扩", "name": "左扩" }, "pad_top": { "tooltip": "上扩", "name": "上扩" }, "pad_right": { "tooltip": "右扩", "name": "右扩" }, "pad_bottom": { "tooltip": "下扩", "name": "下扩" }, "feathering": { "tooltip": "羽化像素", "name": "羽化" }, "main_prompt": { "tooltip": "提示词:描述整张图最终长什么样(主体+场景+风格+光照),不要写'扩展/延伸'这种指令式语句。留空使用工作流自带的通用描述。" }, "image": { "name": "图像" }, "workflow": { "name": "工作流" } }, "outputs": { "0": { "name": "图像" } } };
@@ -86610,7 +86610,7 @@ const _sfc_main$4p = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-Af7AHPz9.mjs"),
+      loader: () => import("./AgentPanelRoot-BuPg6fx5.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -131047,7 +131047,7 @@ const cat$2 = "imageEdit";
 const IMAGE_EDIT_PRESETS = [
   { id: "hd", icon: "pi pi-sparkles", category: cat$2, targetClass: "ComfyTV.UpscaleStage", inputSocket: "image" },
   { id: "outpaint", icon: "pi pi-window-maximize", category: cat$2, targetClass: "ComfyTV.OutpaintStage", inputSocket: "image" },
-  { id: "inpaint", icon: "pi pi-pencil", category: cat$2, targetClass: "ComfyTV.InpaintStage", inputSocket: "image" },
+  { id: "inpaint", icon: "pi pi-pencil", category: cat$2, targetClass: "ComfyTV.InpaintStage", inputAutogrowGroup: "images" },
   { id: "erase", icon: "pi pi-eraser", category: cat$2, targetClass: "ComfyTV.EraseStage", inputSocket: "image" },
   { id: "cutout", icon: "lucide:scissors", category: cat$2, targetClass: "ComfyTV.CutoutStage", inputSocket: "image" },
   { id: "crop", icon: "lucide:crop", category: cat$2, targetClass: "ComfyTV.CropStage", inputSocket: "image" },
@@ -134186,7 +134186,16 @@ const _sfc_main$3T = /* @__PURE__ */ defineComponent({
   setup(__props) {
     const props = __props;
     const painterRef = /* @__PURE__ */ ref(null);
-    const sourceImageUrl = computed(() => pickSourceImageUrl(props.state.inputs));
+    const media = /* @__PURE__ */ ref(readMediaTable(props.node));
+    const unsubMedia = subscribeMediaTable(props.node, () => {
+      media.value = readMediaTable(props.node);
+    });
+    const sourceImageUrl = computed(() => {
+      const wired = pickSourceImageUrl(props.state.inputs);
+      if (wired) return wired;
+      const first2 = media.value.image[0];
+      return first2 ? mediaEntryUrl(props.node, first2) : null;
+    });
     async function commit2() {
       var _a2;
       try {
@@ -134202,6 +134211,7 @@ const _sfc_main$3T = /* @__PURE__ */ defineComponent({
     });
     onUnmounted(() => {
       unregisterPreRun == null ? void 0 : unregisterPreRun();
+      unsubMedia();
     });
     async function onRunWithMaskCommit() {
       if (!unregisterPreRun) await commit2();
@@ -149223,7 +149233,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-B_QrXTdv.mjs");
+    const { STLLoader } = await import("./STLLoader-BiERfpZg.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149231,7 +149241,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-BxZT949P.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-Bw7sBmL1.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -240452,6 +240462,7 @@ function attachFxShell(node, kind, variant, config2) {
   return attach$3(node, kind, variant, config2);
 }
 function attach$3(node, kind, variant, config2) {
+  var _a2;
   installCss$4();
   const anyNode = node;
   const card = el$4("div", "v2-card");
@@ -240470,8 +240481,13 @@ function attach$3(node, kind, variant, config2) {
   embedAnchor.style.cssText = "display:flex;flex-direction:column;flex:1;min-height:0;";
   card.appendChild(embedAnchor);
   let promptAnchor = null;
+  let refsAnchor = null;
   if (config2.prompt) {
     const promptPanel = el$4("div", "v2-fx-promptpanel");
+    if ((_a2 = config2.refTypes) == null ? void 0 : _a2.length) {
+      refsAnchor = el$4("div", "v2-panel__refs");
+      promptPanel.appendChild(refsAnchor);
+    }
     promptAnchor = el$4("div", "v2-panel__prompthost");
     promptPanel.appendChild(promptAnchor);
     card.appendChild(promptPanel);
@@ -240512,13 +240528,13 @@ function attach$3(node, kind, variant, config2) {
     card.appendChild(outputWrap);
     dlBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
     dlBtn.addEventListener("click", (e) => {
-      var _a2;
+      var _a3;
       e.stopPropagation();
       const url = String(stageState.output ?? "");
       if (!url) return;
       const a2 = document.createElement("a");
       a2.href = app$1.api.apiURL(url.replace(/^\/api/, ""));
-      a2.download = decodeURIComponent(((_a2 = url.split("filename=")[1]) == null ? void 0 : _a2.split("&")[0]) || "output.mp4");
+      a2.download = decodeURIComponent(((_a3 = url.split("filename=")[1]) == null ? void 0 : _a3.split("&")[0]) || "output.mp4");
       a2.click();
     });
   }
@@ -240566,6 +240582,9 @@ function attach$3(node, kind, variant, config2) {
       }, embedAnchor]
     ];
     specs.push([_sfc_main$44, { node }, presetAnchor]);
+    if (refsAnchor) {
+      specs.push([MediaStripV2, { getNode: () => node, types: config2.refTypes }, refsAnchor]);
+    }
     if (promptAnchor) {
       specs.push([MainPromptInput, { node }, promptAnchor]);
     }
@@ -240620,12 +240639,12 @@ function attach$3(node, kind, variant, config2) {
     }, 1200, { immediate: false }));
     btn2.addEventListener("pointerdown", (e) => e.stopPropagation());
     btn2.addEventListener("click", (e) => {
-      var _a2;
+      var _a3;
       e.stopPropagation();
       const url = String(stageState.output ?? "");
       if (!url) return;
       const mediaType = config2.outputKind === "image" ? "image" : config2.outputKind === "audio" ? "audio" : "video";
-      const label = decodeURIComponent(((_a2 = url.split("filename=")[1]) == null ? void 0 : _a2.split("&")[0]) || mediaType);
+      const label = decodeURIComponent(((_a3 = url.split("filename=")[1]) == null ? void 0 : _a3.split("&")[0]) || mediaType);
       onAction("load-asset", { imageUrl: url, label, mediaType });
       btn2.dataset.done = "1";
       flash == null ? void 0 : flash.stop();
@@ -242237,6 +242256,7 @@ const CONFIGS = {
     plain: true,
     outputKind: "image",
     prompt: true,
+    refTypes: ["image"],
     linkKind: "inpaint",
     minH: 620
   },
@@ -245223,4 +245243,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-DlLccTfY.mjs.map
+//# sourceMappingURL=main-DulbwBTx.mjs.map

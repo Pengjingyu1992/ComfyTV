@@ -1149,8 +1149,8 @@
       "main_prompt": {
         "tooltip": "What should appear in the masked region. Leave blank to use the workflow's default."
       },
-      "image": {
-        "name": "Image"
+      "images": {
+        "name": "Images"
       },
       "workflow": {
         "name": "Workflow"

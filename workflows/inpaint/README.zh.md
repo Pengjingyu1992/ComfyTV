@@ -6,7 +6,8 @@
 
 ## stage 提供的输入
 
-- **源图**(必需) , 来自上游。
+- **源图**(必需) , 媒体条第 1 张(连线或资产),涂抹画在它上面。
+- **参考图**(可选) , 媒体条第 2 张起,提示词里用 `@image_2`.. 引用;只有支持参考图的工作流会用到。
 - **mask**(必需) , 用户用 painter widget 涂出的区域。
 - **提示词** , 被 mask 的区域应该变成什么。
 - **随机 seed**。
@@ -27,6 +28,7 @@
 
 - **Flux Fill Inpaint**(`flux-fill-inpaint.json` + `_preset.json`) , Flux Fill Dev fp8 inpaint,子图工作流。测试通过。**不依赖第三方插件。**
 - **Fooocus SDXL Inpaint**(`fooocus-sdxl-inpaint.json` + `_preset.json`) , 改自 Acly 的 `comfyui-inpaint-nodes` 插件 `inpaint-refine.json` 模板。SDXL base + Fooocus inpaint head/patch。**需要安装插件 + 额外模型文件** , 见下文「可选:Fooocus 变种」。
+- **Qwen Image 2.1 Inpaint**(`qwen-image-2.1-inpaint.json` + `_preset.json`) , 带参考图的局部重绘,最多 9 张参考图。源图缩到约 1MP,涂抹区填灰后作为 `<image1>` 送进 `TextEncodeQwenImage21`,参考图依次是 `<image2>`..;`SetLatentNoiseMask` 只重画涂抹区,最后羽化贴回原尺寸原图,蒙版外像素不变。没接参考图时多余槽位会被裁掉。模型同 Image Edit 的 Qwen Image 2.1 Edit。**不依赖第三方插件。**测试通过。
 
 ## 需要的模型
 

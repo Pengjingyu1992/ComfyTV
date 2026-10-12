@@ -22,6 +22,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { LGraphNode } from '@/lib/comfyApp'
 import type { StageState } from '@/stores/stageStore'
 import StageCard from '@/components/stages/StageCard.vue'
+import { type MediaTable, readMediaTable, subscribeMediaTable } from '@/composables/stages/mediaOrder'
+import { mediaEntryUrl } from '@/composables/stages/mediaOrderSync'
 import { pickSourceImageUrl } from '@/composables/stages/stageInputs'
 import PainterCanvas from '@/components/widgets/PainterCanvas.vue'
 
@@ -36,7 +38,15 @@ const props = defineProps<{
 
 const painterRef = ref<InstanceType<typeof PainterCanvas> | null>(null)
 
-const sourceImageUrl = computed(() => pickSourceImageUrl(props.state.inputs))
+const media = ref<MediaTable>(readMediaTable(props.node))
+const unsubMedia = subscribeMediaTable(props.node, () => { media.value = readMediaTable(props.node) })
+
+const sourceImageUrl = computed(() => {
+  const wired = pickSourceImageUrl(props.state.inputs)
+  if (wired) return wired
+  const first = media.value.image[0]
+  return first ? mediaEntryUrl(props.node, first) : null
+})
 
 async function commit() {
   try {
@@ -51,7 +61,10 @@ onMounted(() => {
   unregisterPreRun =
     (props.node as any).__comfytvStageApi?.registerPreRun?.(commit) ?? null
 })
-onUnmounted(() => { unregisterPreRun?.() })
+onUnmounted(() => {
+  unregisterPreRun?.()
+  unsubMedia()
+})
 
 async function onRunWithMaskCommit() {
   if (!unregisterPreRun) await commit()

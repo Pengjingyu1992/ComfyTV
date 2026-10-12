@@ -277,7 +277,7 @@ class TestEditStageExecute:
     async def test_inpaint(self, reset_db):
         from ComfyTV.nodes.stages.edits import InpaintStage
         out = await InpaintStage.execute(project_id="default", main_prompt="x",
-                                         image="/view?filename=a.png",
+                                         images={"image0": "/view?filename=a.png"},
                                          mask_data="data:image/png;base64,xxx")
         assert out.values[0]
 
