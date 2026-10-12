@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-ChOmRQFe.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-B2QDW8O8.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86610,7 +86610,7 @@ const _sfc_main$4p = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-BuPg6fx5.mjs"),
+      loader: () => import("./AgentPanelRoot-BxBH5Gir.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -87258,7 +87258,7 @@ function unmount(mounted) {
   return null;
 }
 function overlayRoot() {
-  return document.querySelector("div.absolute.z-999.flex-row");
+  return document.querySelector("div.absolute.z-999 > div.flex-row");
 }
 function actionsBar() {
   return document.querySelector('[data-testid="integrated-tab-bar-actions"]');
@@ -87273,7 +87273,6 @@ function mountDock() {
     else dockPending = false;
     return;
   }
-  dockRetry = 0;
   dockPending = false;
   (_a2 = document.getElementById(DOCK_ID)) == null ? void 0 : _a2.remove();
   const host = document.createElement("div");
@@ -87290,7 +87289,6 @@ function mountEntry() {
     else entryPending = false;
     return;
   }
-  entryRetry = 0;
   entryPending = false;
   (_a2 = document.getElementById(ENTRY_ID)) == null ? void 0 : _a2.remove();
   const host = document.createElement("div");
@@ -87305,12 +87303,14 @@ function sync() {
   if (s.enabled && !entryPending && !(entry && entry.host.isConnected)) {
     entry = unmount(entry);
     entryPending = true;
+    entryRetry = 0;
     mountEntry();
   }
   if (!s.enabled) entry = unmount(entry);
   if (s.isVisible && !dockPending && !(dock && dock.host.isConnected)) {
     dock = unmount(dock);
     dockPending = true;
+    dockRetry = 0;
     mountDock();
   }
 }
@@ -149233,7 +149233,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-BiERfpZg.mjs");
+    const { STLLoader } = await import("./STLLoader-DSp0frEC.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149241,7 +149241,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-Bw7sBmL1.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-D4lRs5Wu.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -245243,4 +245243,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-DulbwBTx.mjs.map
+//# sourceMappingURL=main-CwhIK9mw.mjs.map

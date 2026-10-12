@@ -156,6 +156,23 @@ class TestAgentRoutes:
         assert resp.status == 400
         assert "999999" in (await resp.json())["error"]
 
+    async def test_new_thread_defaults_to_first_available_provider(self, bot_client, fake_provider, monkeypatch):
+        from ComfyTV.api import agent_routes
+        from ComfyTV.bot.providers import ProviderStatus
+
+        class Missing:
+            id = "missing"
+
+            async def probe(self):
+                return ProviderStatus(available=False, detail="not installed")
+
+        monkeypatch.setattr(agent_routes, "list_providers", lambda: [Missing(), fake_provider])
+        resp = await bot_client.post("/comfytv/agent/threads/new/messages", json={"content": "hi"})
+        assert resp.status == 202
+        ack = await resp.json()
+        await _wait_done(bot_client, ack["thread_id"])
+        assert fake_provider.last_turn is not None
+
     async def test_run_mode_roundtrip(self, bot_client):
         assert (await (await bot_client.get("/comfytv/agent/run-mode")).json()) == \
             {"mode": "ask_approval", "credit_limit": None}

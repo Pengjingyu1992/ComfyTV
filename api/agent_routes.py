@@ -34,11 +34,14 @@ def _setting(key: str, default: Any = None) -> Any:
     return default if value in (None, "") else value
 
 
-def default_provider() -> str:
+async def default_provider() -> str:
     configured = str(_setting("bot-provider", "") or "")
     if configured and get_provider(configured) is not None:
         return configured
     providers = list_providers()
+    for provider in providers:
+        if (await provider.probe()).available:
+            return provider.id
     return providers[0].id if providers else "claude-code"
 
 
@@ -134,7 +137,7 @@ async def agent_post_message(request: web.Request) -> web.Response:
     if not text and not has_attachments and not skill_name:
         return _error("content must be a non-empty string")
     if thread_id == "new":
-        provider_id = str(body.get("provider") or default_provider())
+        provider_id = str(body.get("provider") or await default_provider())
         if get_provider(provider_id) is None:
             return _error(f"unknown provider {provider_id!r}")
         chat = storage.create_bot_chat(provider=provider_id)

@@ -69,7 +69,7 @@ function unmount(mounted: Mounted | null): null {
 }
 
 function overlayRoot(): HTMLElement | null {
-  return document.querySelector('div.absolute.z-999.flex-row')
+  return document.querySelector('div.absolute.z-999 > div.flex-row')
 }
 
 function actionsBar(): HTMLElement | null {
@@ -86,7 +86,6 @@ function mountDock(): void {
     else dockPending = false
     return
   }
-  dockRetry = 0
   dockPending = false
   document.getElementById(DOCK_ID)?.remove()
   const host = document.createElement('div')
@@ -103,7 +102,6 @@ function mountEntry(): void {
     else entryPending = false
     return
   }
-  entryRetry = 0
   entryPending = false
   document.getElementById(ENTRY_ID)?.remove()
   const host = document.createElement('div')
@@ -119,12 +117,14 @@ function sync(): void {
   if (s.enabled && !entryPending && !(entry && entry.host.isConnected)) {
     entry = unmount(entry)
     entryPending = true
+    entryRetry = 0
     mountEntry()
   }
   if (!s.enabled) entry = unmount(entry)
   if (s.isVisible && !dockPending && !(dock && dock.host.isConnected)) {
     dock = unmount(dock)
     dockPending = true
+    dockRetry = 0
     mountDock()
   }
 }

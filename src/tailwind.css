@@ -71,18 +71,18 @@
   --color-ring: var(--border-default, rgba(255, 255, 255, 0.15));
   --font-inter: 'Inter', system-ui, sans-serif;
 
-  --color-agent-surface: var(--color-base-background);
-  --color-agent-surface-raised: var(--color-secondary-background);
-  --color-agent-surface-hover: var(--color-secondary-background-hover);
-  --color-agent-fg: var(--color-base-foreground);
-  --color-agent-fg-muted: var(--color-muted-foreground);
-  --color-agent-fg-subtle: var(--color-muted-foreground);
-  --color-agent-border: var(--color-component-node-border);
-  --color-agent-border-strong: var(--color-border-default);
-  --color-agent-accent: var(--color-primary-background);
+  --color-agent-surface: var(--base-background, #1e1e1e);
+  --color-agent-surface-raised: var(--secondary-background, rgba(255,255,255,0.06));
+  --color-agent-surface-hover: var(--secondary-background-hover, rgba(255,255,255,0.10));
+  --color-agent-fg: var(--base-foreground, #e0e0e0);
+  --color-agent-fg-muted: var(--muted-foreground, #888888);
+  --color-agent-fg-subtle: var(--muted-foreground, #888888);
+  --color-agent-border: var(--component-node-border, rgba(255, 255, 255, 0.15));
+  --color-agent-border-strong: var(--border-default, rgba(255,255,255,0.15));
+  --color-agent-accent: var(--primary-background, rgba(78,168,255,0.6));
   --color-agent-accent-fg: #ffffff;
-  --color-agent-danger: var(--color-destructive-background);
-  --color-agent-success: var(--color-success-background);
+  --color-agent-danger: var(--destructive-background, #c0392b);
+  --color-agent-success: var(--success-background, #2e9e4f);
   --color-agent-pill: #303036;
   --radius-agent: 0.75rem;
 
