@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-import { apiFetch, apiSend, OkSchema, unlinkWorkflow, uploadApiSidecar, WorkflowConfigSchema } from '@/api'
+import { apiFetch, apiSend, ConvertWorkflowResultSchema, OkSchema, unlinkWorkflow, uploadApiSidecar, WorkflowConfigSchema } from '@/api'
 import { askConfirm } from '@/composables/dialog/useConfirmDialog'
 import { tryOpenWorkflowInComfy } from '@/composables/useOpenInComfy'
 import { invalidateWorkflowInfo } from '@/composables/stages/useWorkflowValidator'
@@ -31,6 +31,9 @@ export function useWorkflowConfig(t: (key: string, args?: Record<string, unknown
   const uploadApiBusy  = ref(false)
   const uploadApiError = ref<string | null>(null)
 
+  const reconvertBusy  = ref(false)
+  const reconvertError = ref<string | null>(null)
+
   const unlinkBusy  = ref(false)
   const unlinkError = ref<string | null>(null)
 
@@ -38,6 +41,7 @@ export function useWorkflowConfig(t: (key: string, args?: Record<string, unknown
 
   async function loadConfig(kind: string, label: string) {
     loadError.value = null
+    reconvertError.value = null
     config.value = null
     try {
       try { await prepareWorkflow(kind, label) } catch {}
@@ -153,6 +157,32 @@ export function useWorkflowConfig(t: (key: string, args?: Record<string, unknown
     input.click()
   }
 
+  async function onReconvertApi() {
+    if (!config.value) return
+    const { kind, label } = config.value
+    reconvertError.value = null
+    reconvertBusy.value = true
+    try {
+      const res = await apiSend(
+        '/comfytv/workflows/convert', 'POST', ConvertWorkflowResultSchema, { kind, label },
+      )
+      emitWorkflowApiGenerated(kind, label)
+      await loadConfig(kind, label)
+      invalidateWorkflowInfo()
+      ;(app as any)?.extensionManager?.toast?.add?.({
+        severity: 'success',
+        summary: t('configSidebar.reconvertApiOk', { n: res.node_count }),
+        life: 4000,
+      })
+    } catch (e: any) {
+      reconvertError.value = t('configSidebar.reconvertApiFailed', {
+        detail: String(e?.message || e || 'convert failed'),
+      })
+    } finally {
+      reconvertBusy.value = false
+    }
+  }
+
   async function onUnlink() {
     if (!config.value) return
     const { kind, label, id } = config.value
@@ -229,6 +259,7 @@ export function useWorkflowConfig(t: (key: string, args?: Record<string, unknown
     exportBusy, exportError,
     resetBusy,  resetError,
     uploadApiBusy, uploadApiError,
+    reconvertBusy, reconvertError,
     unlinkBusy, unlinkError,
     openInComfyBusy,
     loadConfig,
@@ -236,6 +267,7 @@ export function useWorkflowConfig(t: (key: string, args?: Record<string, unknown
     onOpenInComfy,
     onResetToPreset,
     onUploadApiSidecar,
+    onReconvertApi,
     onUnlink,
     postBinding,
     deleteBinding,

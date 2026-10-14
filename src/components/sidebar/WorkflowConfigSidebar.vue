@@ -22,8 +22,19 @@
 
     <div v-else-if="config" class="ctv:flex ctv:flex-col ctv:gap-3">
       <div class="ctv:flex ctv:flex-col ctv:gap-0.5 ctv:pt-1 ctv:pb-2 ctv:border-b ctv:border-border-subtle">
-        <span class="ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground">{{ config.kind }}</span>
-        <span class="ctv:text-xs ctv:font-semibold">{{ config.label }}</span>
+        <div class="ctv:flex ctv:items-start ctv:gap-2">
+          <div class="ctv:flex ctv:flex-col ctv:gap-0.5 ctv:flex-1 ctv:min-w-0">
+            <span class="ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground">{{ config.kind }}</span>
+            <span class="ctv:text-xs ctv:font-semibold ctv:break-all">{{ config.label }}</span>
+          </div>
+          <button
+            :class="exportBtn"
+            :disabled="config.file_exists === false || reconvertBusy"
+            :title="$t('configSidebar.reconvertApiTooltip')"
+            @click="onReconvertApi"
+          ><i :class="['pi pi-refresh', reconvertBusy && 'pi-spin']" /> {{ $t('configSidebar.reconvertApi') }}</button>
+        </div>
+        <span v-if="reconvertError" class="ctv:mt-1 ctv:text-2xs ctv:break-all ctv:text-destructive-background">{{ reconvertError }}</span>
         <span v-if="!config.has_api" class="ctv:mt-1 ctv:text-2xs ctv:italic ctv:text-warning-background">
           {{ $t('configSidebar.pickWorkflowFirst') }}
         </span>
@@ -84,139 +95,13 @@
         </div>
       </section>
 
-      <section v-if="config.exposed_widgets?.length">
-        <h3 :class="sectionHeading">{{ $t('configSidebar.section.widgets') }}</h3>
-
-        <div v-if="showNodeFilter" class="ctv:flex ctv:flex-col ctv:gap-1.5 ctv:mb-2.5">
-          <div class="ctv:relative">
-            <IconSearch
-              class="ctv:absolute ctv:left-2 ctv:top-1/2 ctv:-translate-y-1/2 ctv:size-3.5
-                     ctv:text-muted-foreground ctv:pointer-events-none"
-            />
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="$t('configSidebar.searchNodes')"
-              class="ctv:w-full ctv:h-7 ctv:box-border ctv:pl-7 ctv:pr-2 ctv:rounded-lg ctv:text-xs ctv:[font-family:inherit]
-                     ctv:bg-secondary-background ctv:border ctv:border-border-subtle ctv:text-base-foreground
-                     ctv:placeholder:text-muted-foreground ctv:focus-visible:outline-none ctv:focus:border-border-default"
-            />
-          </div>
-          <div v-if="groupChips.length > 1" class="ctv:flex ctv:flex-wrap ctv:items-center ctv:gap-1">
-            <button
-              :class="chipClass(groupFilter === ALL_GROUPS)"
-              @click="groupFilter = ALL_GROUPS"
-            >
-              {{ $t('configSidebar.groupAll') }}
-              <span :class="chipCountClass">{{ totalNodeCount }}</span>
-            </button>
-            <button
-              v-for="chip in groupChips"
-              :key="chip.key"
-              :class="chipClass(groupFilter === chip.key)"
-              @click="groupFilter = groupFilter === chip.key ? ALL_GROUPS : chip.key"
-            >
-              {{ chip.label }}
-              <span :class="chipCountClass">{{ chip.count }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="!visibleGroups.length" :class="emptyClass">
-          {{ $t('configSidebar.noMatchingNodes') }}
-        </div>
-
-        <div v-for="(grp, gi) in visibleGroups" :key="gi"
-             class="ctv:flex ctv:flex-col ctv:gap-1.5 ctv:mb-2.5">
-          <div v-if="grp.title"
-               class="ctv:py-1 ctv:text-3xs ctv:uppercase ctv:tracking-wide
-                      ctv:text-muted-foreground ctv:border-b ctv:border-border-subtle">
-            {{ grp.title }}
-          </div>
-
-          <div v-for="node in grp.nodes" :key="node.node_id"
-               class="ctv:rounded-lg ctv:overflow-hidden ctv:bg-base-foreground/[0.03]">
-            <button
-              :class="[
-                'ctv:flex ctv:items-center ctv:gap-1.5 ctv:w-full ctv:py-1.5 ctv:px-2 ctv:text-left ctv:cursor-pointer ctv:text-inherit ctv:[font-family:inherit]',
-                'ctv:bg-transparent ctv:border-none ctv:hover:bg-secondary-background-hover',
-              ]"
-              :aria-expanded="!isNodeCollapsed(node.node_id)"
-              @click="toggleCollapsed(node.node_id)"
-            >
-              <i :class="['pi', isNodeCollapsed(node.node_id) ? 'pi-chevron-right' : 'pi-chevron-down', 'ctv:w-2.5 ctv:text-2xs ctv:text-muted-foreground']" />
-              <span class="ctv:text-xs ctv:font-semibold ctv:text-base-foreground">{{ node.node_title }}</span>
-              <span v-if="node.node_title !== node.node_type"
-                    class="ctv:text-2xs ctv:font-mono ctv:text-muted-foreground/60">
-                ({{ node.node_type }})
-              </span>
-              <span class="ctv:text-2xs ctv:font-mono ctv:text-muted-foreground/60">#{{ node.node_id }}</span>
-              <span class="ctv:flex-1"></span>
-              <span class="ctv:text-3xs ctv:font-mono ctv:py-px ctv:px-1.5 ctv:rounded-lg ctv:bg-base-foreground/5 ctv:text-muted-foreground">
-                {{ boundCountFor(node) }} / {{ node.widgets.length }}
-              </span>
-            </button>
-
-            <div v-if="!isNodeCollapsed(node.node_id)" class="ctv:flex ctv:flex-col ctv:gap-1.5 ctv:p-2">
-              <span v-if="outputsTakenOver(node)" class="ctv:text-3xs ctv:italic ctv:text-muted-foreground">
-                {{ $t('configSidebar.outputsTakenOver') }}
-              </span>
-              <div
-                v-for="w in node.widgets.filter(w => !isOutputRow(w))"
-                :key="`${w.node_id}/${w.widget_name}`"
-                class="ctv:flex ctv:flex-col ctv:gap-1 ctv:[&_+_&]:pt-1.5 ctv:[&_+_&]:border-t ctv:[&_+_&]:border-border-subtle"
-              >
-                <div class="ctv:text-2xs">
-                  <span class="ctv:font-mono ctv:text-muted-foreground">.{{ w.widget_name }}</span>
-                </div>
-                <ComfyTVWidget
-                  :kind="w.widget_type"
-                  :model-value="effectiveValue(w)"
-                  :options="comboOptions(w)"
-                  :min="numProp(w, 'min')"
-                  :max="numProp(w, 'max')"
-                  :step="numProp(w, 'step')"
-                  :precision="numProp(w, 'precision')"
-                  :multiline="!!w.widget_props?.multiline"
-                  :disabled="isStageBound(w) || !!exposedOf(w) || outputsTakenOver(node)"
-                  @update:model-value="onValueChange(w, $event)"
-                />
-                <div v-if="exposedOf(w)" class="ctv:flex ctv:items-center ctv:gap-1.5 ctv:mt-0.5 ctv:text-3xs ctv:text-muted-foreground">
-                  <span class="ctv:uppercase ctv:tracking-wide">{{ $t('configSidebar.customExposed') }}</span>
-                  <span class="ctv:py-px ctv:px-1.5 ctv:rounded-lg ctv:bg-base-foreground/5 ctv:text-base-foreground">
-                    {{ exposedOf(w)!.label }} · {{ exposedOf(w)!.prompt ? $t('configSidebar.customExposedPrompt') : exposedOf(w)!.kind }}
-                  </span>
-                </div>
-                <div v-else class="ctv:grid ctv:grid-cols-[60px_1fr] ctv:items-center ctv:gap-1.5 ctv:mt-0.5">
-                  <span class="ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground">{{ $t('configSidebar.bindTo') }}</span>
-                  <ComfyTVSelect
-                    :model-value="dropdownValueFor(w)"
-                    :options="bindingOptions"
-                    @update:model-value="onBindingChange(w, $event as string)"
-                  />
-                </div>
-                <label v-if="!exposedOf(w) && isUpstreamBound(w)"
-                       class="ctv:flex ctv:items-center ctv:gap-1.5 ctv:mt-0.5 ctv:cursor-pointer
-                              ctv:text-3xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    :checked="w.required !== false"
-                    class="ctv:m-0 ctv:cursor-pointer"
-                    @change="onRequiredToggle(w, ($event.target as HTMLInputElement).checked)"
-                  />
-                  {{ $t('configSidebar.bindingRequired') }}
-                </label>
-              </div>
-              <NodeOutputBindings
-                v-if="node.widgets.some(isOutputRow)"
-                :outputs="node.widgets.filter(isOutputRow)"
-                :options="bindingOptions"
-                @change="onBindingChange"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
+      <WorkflowWidgetsSection
+        v-if="config.exposed_widgets?.length"
+        :config="config"
+        :workflow-kind="selected.workflowKind"
+        :post-binding="postBinding"
+        :delete-binding="deleteBinding"
+      />
 
       <div v-else class="ctv:p-2 ctv:text-xs ctv:text-left ctv:flex ctv:flex-col ctv:gap-2">
         <p class="ctv:m-0 ctv:italic ctv:text-muted-foreground/60">
@@ -326,32 +211,14 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import IconSearch from '~icons/lucide/search'
-
-import ComfyTVWidget from '@/components/widgets/ComfyTVWidget.vue'
 import ComfyTVSelect from '@/components/widgets/ComfyTVSelect.vue'
-import NodeOutputBindings from '@/components/sidebar/NodeOutputBindings.vue'
-import { useBindingWriter } from '@/composables/sidebar/useBindingWriter'
-import { useCollapsedFlag, useCollapsedNodeIds } from '@/composables/sidebar/useCollapsedState'
-import {
-  boundWidgetCount,
-  useNodeFilter,
-  useResultMeta,
-  useSelectionConfigSync,
-} from '@/composables/sidebar/useConfigSidebar'
+import WorkflowWidgetsSection from '@/components/sidebar/WorkflowWidgetsSection.vue'
+import { useCollapsedFlag } from '@/composables/sidebar/useCollapsedState'
+import { useResultMeta, useSelectionConfigSync } from '@/composables/sidebar/useConfigSidebar'
 import { useWorkflowConfig } from '@/composables/sidebar/useWorkflowConfig'
 import { normalizeMentionStyle } from '@/composables/stages/imageSlotMentions'
 import { LINK_TYPE_NATIVE } from '@/api'
-import {
-  ALL_GROUPS,
-  buildBindingOptions,
-  customExposedOutputs,
-  customExposureIndex,
-  isOutputRow,
-  outputsTakenOver,
-  type ExposedWidget,
-  type NodeBlock,
-} from '@/composables/sidebar/workflowConfigCatalog'
+import { customExposedOutputs } from '@/composables/sidebar/workflowConfigCatalog'
 
 const { t } = useI18n()
 
@@ -360,6 +227,7 @@ const {
   exportBusy, exportError,
   resetBusy,  resetError,
   uploadApiBusy, uploadApiError,
+  reconvertBusy, reconvertError,
   unlinkBusy, unlinkError,
   openInComfyBusy,
   loadConfig,
@@ -367,6 +235,7 @@ const {
   onOpenInComfy,
   onResetToPreset,
   onUploadApiSidecar,
+  onReconvertApi,
   onUnlink,
   postBinding,
   deleteBinding,
@@ -389,49 +258,11 @@ const {
 } = useResultMeta(config, postMeta, t)
 
 const isCustom = computed(() => config.value?.kind === 'custom')
-const exposureIndex = computed(() => customExposureIndex(config.value))
 const customOutputs = computed(() => customExposedOutputs(config.value))
-function exposedOf(w: ExposedWidget) {
-  return exposureIndex.value.get(`${w.node_id}/${w.widget_name}`)
-}
 
 const workflowId = computed(() => config.value?.id ?? null)
-const { isCollapsed, toggle: toggleCollapsed } = useCollapsedNodeIds(workflowId)
 const { collapsed: notesCollapsed, toggle: toggleNotesCollapsed } =
   useCollapsedFlag(workflowId, 'comfytv:sidebar:notes-collapsed:')
-
-const bindingOptions = computed(() =>
-  buildBindingOptions(
-    config.value?.exposed_widgets ?? [],
-    selected.value?.workflowKind,
-  ),
-)
-
-const {
-  searchQuery,
-  groupFilter,
-  totalNodeCount,
-  showNodeFilter,
-  groupChips,
-  visibleGroups,
-} = useNodeFilter(config, workflowId, t)
-
-function isNodeCollapsed(nodeId: string): boolean {
-  if (searchQuery.value.trim()) return false
-  return isCollapsed(nodeId)
-}
-
-const {
-  isStageBound,
-  isUpstreamBound,
-  dropdownValueFor,
-  effectiveValue,
-  comboOptions,
-  numProp,
-  onValueChange,
-  onBindingChange,
-  onRequiredToggle,
-} = useBindingWriter(postBinding, deleteBinding)
 
 const mentionStyleModel = computed(() =>
   normalizeMentionStyle(config.value?.meta?.mention_style),
@@ -446,10 +277,6 @@ async function onMentionStyleChange(style: string) {
   if (normalizeMentionStyle(style) === 'natural') delete meta.mention_style
   else meta.mention_style = style
   await postMeta({ meta })
-}
-
-function boundCountFor(node: NodeBlock): number {
-  return boundWidgetCount(node, isStageBound)
 }
 
 const emptyClass     = 'ctv:py-5 ctv:px-1.5 ctv:text-center ctv:italic ctv:text-xs ctv:text-muted-foreground/60'
@@ -467,16 +294,4 @@ const exportBtn = COMFY_BTN_SM
 
 const resetBtn = COMFY_BTN_SM
   + ' ctv:self-start ctv:bg-transparent ctv:text-muted-foreground ctv:hover:bg-warning-background/10 ctv:hover:text-warning-background'
-
-function chipClass(active: boolean) {
-  return [
-    'ctv:inline-flex ctv:items-center ctv:gap-1 ctv:cursor-pointer ctv:[font-family:inherit]',
-    'ctv:rounded-lg ctv:border ctv:px-2 ctv:py-0.5 ctv:text-2xs ctv:transition-colors',
-    active
-      ? 'ctv:bg-secondary-background-selected ctv:border-primary-background/60 ctv:text-base-foreground'
-      : 'ctv:bg-secondary-background ctv:border-border-subtle ctv:text-muted-foreground ctv:hover:bg-secondary-background-hover ctv:hover:text-base-foreground',
-  ].join(' ')
-}
-
-const chipCountClass = 'ctv:py-0 ctv:px-1 ctv:rounded-lg ctv:text-3xs ctv:bg-base-foreground/10'
 </script>

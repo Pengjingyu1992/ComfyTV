@@ -142,6 +142,14 @@ class TestConvertWorkflow:
         with pytest.raises(FileNotFoundError, match="file missing"):
             conv.convert_workflow("image", "Ghost")
 
+    def test_sidecar_api_json_refuses_conversion(
+            self, reset_db, tmp_path, monkeypatch, registry):
+        label = _seed_gui_workflow(tmp_path, monkeypatch)
+        (tmp_path / "workflows" / "image" / f"{label}.api.json").write_text(
+            json.dumps({"1": {"class_type": "Gen", "inputs": {}}}))
+        with pytest.raises(WorkflowConversionError, match=f"{label}.api.json supplies"):
+            conv.convert_workflow("image", label)
+
     def test_empty_conversion_raises_and_saves_nothing(
             self, reset_db, tmp_path, monkeypatch, registry):
         label = _seed_gui_workflow(

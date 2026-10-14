@@ -103,4 +103,11 @@ def convert_workflow(kind: str, label: str) -> dict:
         ).scalar_one_or_none()
         if row is None:
             raise FileNotFoundError(f"workflow not found: {kind}/{label}")
+        from .bindings import _sidecar_api_path
+        sidecar = _sidecar_api_path(row.file_path)
+        if sidecar is not None and sidecar.exists():
+            raise WorkflowConversionError(
+                f"{sidecar.name} supplies this workflow's API prompt; "
+                f"remove it to convert from the workflow file"
+            )
         return convert_row(s, row)

@@ -414,6 +414,56 @@ describe('useWorkflowConfig', () => {
     expect(config.value).toEqual(payload)
   })
 
+  it('onReconvertApi converts the loaded workflow then reloads config', async () => {
+    const payloadV1 = {
+      id: 30, kind: 'video', label: 'H3',
+      has_api: true, description: null, gui_notes: [], exposed_widgets: [],
+    }
+    const payloadV2 = { ...payloadV1, description: 'fresh' }
+    const fetchApi = (app as any).api.fetchApi as ReturnType<typeof vi.fn>
+    fetchApi.mockResolvedValueOnce(jsonResp(payloadV1))
+    fetchApi.mockResolvedValueOnce(jsonResp({ ok: true, api_json: {}, file_mtime: 1, node_count: 12 }))
+    fetchApi.mockResolvedValueOnce(jsonResp(payloadV2))
+
+    const { config, loadConfig, onReconvertApi, reconvertBusy, reconvertError } = useWorkflowConfig(t)
+    await loadConfig('video', 'H3')
+    await onReconvertApi()
+
+    const [path, init] = fetchApi.mock.calls[1]
+    expect(path).toBe('/comfytv/workflows/convert')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ kind: 'video', label: 'H3' })
+    expect(config.value?.description).toBe('fresh')
+    expect(reconvertBusy.value).toBe(false)
+    expect(reconvertError.value).toBeNull()
+  })
+
+  it('onReconvertApi surfaces the conversion error and keeps config', async () => {
+    const payload = {
+      id: 31, kind: 'video', label: 'H3',
+      has_api: true, description: null, gui_notes: [], exposed_widgets: [],
+    }
+    const fetchApi = (app as any).api.fetchApi as ReturnType<typeof vi.fn>
+    fetchApi.mockResolvedValueOnce(jsonResp(payload))
+    fetchApi.mockResolvedValueOnce(jsonResp({ error: 'Failed to convert node #389' }, 422))
+
+    const { config, loadConfig, onReconvertApi, reconvertBusy, reconvertError } = useWorkflowConfig(t)
+    await loadConfig('video', 'H3')
+    await onReconvertApi()
+
+    expect(reconvertBusy.value).toBe(false)
+    expect(reconvertError.value).toContain('configSidebar.reconvertApiFailed')
+    expect(reconvertError.value).toContain('Failed to convert node #389')
+    expect(config.value).toEqual(payload)
+  })
+
+  it('onReconvertApi is a no-op when no config is loaded', async () => {
+    const fetchApi = (app as any).api.fetchApi as ReturnType<typeof vi.fn>
+    const { onReconvertApi } = useWorkflowConfig(t)
+    await onReconvertApi()
+    expect(fetchApi).not.toHaveBeenCalled()
+  })
+
   it('onUnlink is a no-op when no config is loaded', async () => {
     const fetchApi = (app as any).api.fetchApi as ReturnType<typeof vi.fn>
     const { onUnlink } = useWorkflowConfig(t)
