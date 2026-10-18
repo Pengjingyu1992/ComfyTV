@@ -284,6 +284,37 @@ class TestBotEndpoints:
         assert blocks[-1] == {"type": "notice", "level": "error",
                               "text": "model exploded"}
 
+    async def test_a_failing_capabilities_call_still_ends_the_turn(
+            self, client, fake_provider, monkeypatch):
+        def boom(self):
+            raise RuntimeError("caps broke")
+        monkeypatch.setattr(type(fake_provider), "capabilities", boom)
+        resp = await client.post("/comfytv/bot/chats",
+                                 json={"provider": "fake-test"})
+        chat_id = (await resp.json())["chat"]["id"]
+        await client.post(f"/comfytv/bot/chats/{chat_id}/send",
+                          json={"text": "go"})
+        data = await _wait_done(client, chat_id)
+        assistant = next(m for m in data["messages"]
+                         if m["role"] == "assistant")
+        assert assistant["status"] == "error"
+        assert json.loads(assistant["content"])[-1]["text"] == "caps broke"
+        from ComfyTV.api.bot import ACTIVE_TURNS
+        assert chat_id not in ACTIVE_TURNS
+
+    async def test_a_turn_whose_provider_is_gone_still_ends(self, client):
+        from ComfyTV import storage
+        from ComfyTV.api.bot import ACTIVE_TURNS
+        from ComfyTV.api.bot_turns import _begin_turn
+        chat = storage.create_bot_chat(provider="fake-test")
+        user_msg = storage.create_bot_message(
+            chat_id=chat["id"], role="user", status="done")
+        _begin_turn({**chat, "provider": "removed"}, text="x",
+                    provider_text="x", attachments=[], user_msg=user_msg)
+        data = await _wait_done(client, chat["id"])
+        assert data["messages"][-1]["status"] == "error"
+        assert chat["id"] not in ACTIVE_TURNS
+
     async def test_reap_marks_stale_streaming(self, client, fake_provider):
         from ComfyTV import storage
         from ComfyTV.api.bot import _reap_stale_messages
@@ -294,4 +325,19 @@ class TestBotEndpoints:
         msgs = storage.list_bot_messages(chat["id"])
         assert msgs[0]["id"] == msg["id"]
         assert msgs[0]["status"] == "aborted"
+
+
+async def test_spawned_tasks_are_kept_until_done():
+    from ComfyTV.api import _common
+    gate = asyncio.Event()
+
+    async def work():
+        await gate.wait()
+
+    _common.spawn(work(), name="comfytv-test-spawn")
+    task = next(t for t in _common._TASKS if t.get_name() == "comfytv-test-spawn")
+    gate.set()
+    await task
+    await asyncio.sleep(0)
+    assert task not in _common._TASKS
 

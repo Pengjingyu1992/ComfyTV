@@ -10,6 +10,7 @@ from server import PromptServer
 from .. import storage
 from ..bot import BotEvent, TurnHandle, TurnRequest, get_provider
 from . import agent_events
+from ._common import spawn
 
 _log = logging.getLogger(__name__)
 
@@ -221,15 +222,14 @@ async def _run_turn(chat: dict, text: str, state: _TurnState, *,
             storage.update_bot_message(
                 state.message_id, content=json.dumps(state.blocks))
 
-    history = None
-    if not provider.capabilities().stateful:
-        try:
-            history = _replay_history(chat_id, state.message_id)
-        except Exception:
-            _log.exception("[ComfyTV/bot] history replay failed for %s", chat_id)
-
     comfy_mcp_argv = _comfy_mcp_argv()
     try:
+        history = None
+        if not provider.capabilities().stateful:
+            try:
+                history = _replay_history(chat_id, state.message_id)
+            except Exception:
+                _log.exception("[ComfyTV/bot] history replay failed for %s", chat_id)
         result = await provider.send(
             TurnRequest(
                 chat_id=chat_id,
@@ -304,7 +304,7 @@ def _begin_turn(chat: dict, *, text: str, provider_text: str,
         "user_message": user_msg,
         "assistant_message": assistant_msg,
     })
-    asyncio.create_task(
+    spawn(
         _run_turn(chat, text, state, provider_text=provider_text,
                   attachments=attachments),
         name=f"comfytv-bot-{chat['id'][:8]}",

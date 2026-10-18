@@ -16,7 +16,7 @@ from server import PromptServer
 from .. import storage
 from ..runners import WORKFLOW_KINDS, refresh_registry, workflow_db
 from ..runners.remote_comfy import CURRENT_JOB, JobCancelled, RemoteJobHandle
-from ._common import routes
+from ._common import routes, spawn
 
 
 _log = logging.getLogger(__name__)
@@ -511,7 +511,7 @@ async def remote_run(request: web.Request) -> web.Response:
         stage_uid=str(stage_uid) if stage_uid else None,
     )
     ACTIVE_JOBS[job_id] = handle
-    asyncio.create_task(
+    spawn(
         _run_job(job_id, handle, stage_cls, kwargs, target, project_id),
         name=f"comfytv-remote-{job_id[:8]}",
     )

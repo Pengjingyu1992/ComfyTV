@@ -1,10 +1,20 @@
+import asyncio
 import logging
+from typing import Any, Coroutine
 
 from server import PromptServer
 
 
 routes = PromptServer.instance.routes
 _log = logging.getLogger(__name__)
+
+_TASKS: set[asyncio.Task] = set()
+
+
+def spawn(coro: Coroutine[Any, Any, None], name: str) -> None:
+    task = asyncio.create_task(coro, name=name)
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)
 
 
 def broadcast_entry_event(event: str, project_id: str, payload: dict) -> None:
