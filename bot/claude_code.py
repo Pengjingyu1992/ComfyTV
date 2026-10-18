@@ -95,7 +95,7 @@ def resolve_claude_command() -> Optional[list[str]]:
         return [node, str(cli_js)]
     cmd = p.with_suffix(".cmd")
     if cmd.exists():
-        return ["cmd.exe", "/d", "/s", "/c", str(cmd)]
+        return [str(cmd)]
     return None
 
 

@@ -200,11 +200,16 @@ class TestResolveCommand:
         monkeypatch.setattr(rt.shutil, "which", lambda name: str(exe))
         assert rt.resolve_command() == ([str(exe)], "")
 
-    def test_windows_cmd_runs_through_cmd_exe(self, tmp_path, monkeypatch):
-        exe = tmp_path / "dsh.cmd"
-        monkeypatch.setattr(rt.sys, "platform", "win32")
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows .cmd shim")
+    async def test_windows_cmd_under_path_with_spaces(self, tmp_path, monkeypatch):
+        exe = tmp_path / "Program Files" / "dsh.cmd"
+        exe.parent.mkdir()
+        exe.write_text("@echo off\r\necho [%~1][%~2]\r\n")
         monkeypatch.setattr(rt.shutil, "which", lambda name: str(exe))
-        assert rt.resolve_command() == (["cmd.exe", "/d", "/s", "/c", str(exe)], "")
+        argv, _ = rt.resolve_command()
+        code, out, _ = await dh.run_command([*argv, "--patch", str(tmp_path / "my dir" / "o.yml")], timeout=30)
+        assert code == 0
+        assert out.decode().strip() == f"[--patch][{tmp_path / 'my dir' / 'o.yml'}]"
 
     def test_mac_app_command_is_the_fallback(self, monkeypatch):
         monkeypatch.setattr(rt.sys, "platform", "darwin")

@@ -30,16 +30,10 @@ DISABLED_ENTRY_IDS = (
 )
 
 
-def _argv_for(path: Path) -> list[str]:
-    if sys.platform == "win32" and path.suffix.lower() in (".cmd", ".bat"):
-        return ["cmd.exe", "/d", "/s", "/c", str(path)]
-    return [str(path)]
-
-
 def resolve_command() -> tuple[Optional[list[str]], str]:
     found = shutil.which("dsh")
     if found:
-        return _argv_for(Path(found)), ""
+        return [found], ""
     if sys.platform == "darwin" and MAC_APP_COMMAND.is_file():
         return [str(MAC_APP_COMMAND)], ""
     return None, ("dsh was not found on PATH. Use \"Manage dsh Command…\" in the "
