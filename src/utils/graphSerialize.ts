@@ -3,6 +3,22 @@ import { isChainable } from '@/composables/stages/useChainedFxPreview'
 const LG_MODE_NEVER = 2
 const LG_MODE_BYPASS = 4
 
+function linkOrigin(graph: any, linkId: number): { id: unknown; slot: number } | null {
+  const seen = new Set<number>()
+  let id: number | null = linkId
+  while (id != null && !seen.has(id)) {
+    seen.add(id)
+    const link: any = (graph?.links && typeof graph.links.get === 'function')
+      ? graph.links.get(id)
+      : (graph?.links?.[id] ?? graph?.getLink?.(id))
+    if (!link || link.origin_id == null) return null
+    const src: any = graph?.getNodeById?.(link.origin_id)
+    if (src?.type !== 'Reroute') return { id: link.origin_id, slot: Number(link.origin_slot) }
+    id = src.inputs?.[0]?.link ?? null
+  }
+  return null
+}
+
 export function collectReachableNodeIds(app: any, target: any): Set<number> {
   const reachable = new Set<number>()
   reachable.add(target.id)
@@ -10,20 +26,13 @@ export function collectReachableNodeIds(app: any, target: any): Set<number> {
   const isBridgeIn = typeof target?.comfyClass === 'string'
                      && target.comfyClass.startsWith('ComfyTV.BridgeTo')
 
-  const linksMap: any = app?.graph?.links
-  const getLink = (linkId: number) =>
-    (linksMap && typeof linksMap.get === 'function')
-      ? linksMap.get(linkId)
-      : (linksMap?.[linkId] ?? app?.graph?.getLink?.(linkId))
-
   const queue: any[] = [target]
   while (queue.length) {
     const node = queue.shift()
     if (!node) continue
     for (const inp of node.inputs ?? []) {
       if (inp.link == null) continue
-      const link = getLink(inp.link)
-      const srcId = link?.origin_id
+      const srcId = linkOrigin(app?.graph, inp.link)?.id
       if (srcId == null) continue
       const srcNode = app?.graph?.getNodeById?.(srcId)
       if (!srcNode || reachable.has(srcNode.id)) continue
@@ -69,17 +78,11 @@ export async function serializeNodeEntry(node: any): Promise<{
     }
   }
 
-  const graph = node.graph
-  const getLink = (id: number) =>
-    (graph?.links && typeof graph.links.get === 'function')
-      ? graph.links.get(id)
-      : (graph?.links?.[id] ?? graph?.getLink?.(id))
-
   for (const slot of node.inputs ?? []) {
     if (slot.link == null) continue
-    const link = getLink(slot.link)
-    if (!link) continue
-    inputs[slot.name] = [String(link.origin_id), Number(link.origin_slot)]
+    const origin = linkOrigin(node.graph, slot.link)
+    if (!origin) continue
+    inputs[slot.name] = [String(origin.id), origin.slot]
   }
 
   return {

@@ -53,6 +53,17 @@ describe('collectReachableNodeIds', () => {
     expect([...reachable]).toEqual([3])
   })
 
+  it('crosses Reroute nodes to reach the chainable fx upstream', () => {
+    const fx = { id: 2, comfyClass: 'ComfyTV.VideoCurvesStage', inputs: [] }
+    const reroute = { id: 5, type: 'Reroute', inputs: [{ link: 10 }] }
+    const target = { id: 4, comfyClass: 'ComfyTV.FXChainStage', inputs: [{ name: 'video', link: 30 }] }
+    const graph = makeGraph([fx, reroute, target])
+    graph.links.set(30, { origin_id: 5, origin_slot: 0 })
+    graph.links.set(10, { origin_id: 2, origin_slot: 0 })
+    const reachable = collectReachableNodeIds({ graph }, target)
+    expect([...reachable].sort()).toEqual([2, 4])
+  })
+
   it('walks upstream links for BridgeTo nodes', () => {
     const src = { id: 1, comfyClass: 'X', inputs: [] }
     const mid = { id: 2, comfyClass: 'Y', inputs: [{ link: 10 }] }
@@ -85,6 +96,38 @@ describe('serializeNodeEntry', () => {
     expect(entry.inputs.main_prompt).toBe('hi')
     expect(entry.inputs.steps).toBe(20)
     expect(entry.inputs.image).toEqual(['9', 1])
+  })
+
+  it('resolves link inputs through Reroute chains to the real source', async () => {
+    const stage = { id: 1, comfyClass: 'ComfyTV.ImageStage', inputs: [] }
+    const r1 = { id: 150, type: 'Reroute', inputs: [{ link: 11 }] }
+    const r2 = { id: 151, type: 'Reroute', inputs: [{ link: 12 }] }
+    const target = { id: 3, comfyClass: 'ComfyTV.ImageEditStage', inputs: [{ name: 'image', link: 13 }] }
+    const graph = makeGraph([stage, r1, r2, target])
+    graph.links.set(13, { origin_id: 151, origin_slot: 0 })
+    graph.links.set(12, { origin_id: 150, origin_slot: 0 })
+    graph.links.set(11, { origin_id: 1, origin_slot: 2 })
+    const entry = await serializeNodeEntry(target)
+    expect(entry.inputs.image).toEqual(['1', 2])
+  })
+
+  it('drops inputs fed by an unconnected or cyclic Reroute', async () => {
+    const dangling = { id: 150, type: 'Reroute', inputs: [{ link: null }] }
+    const loopA = { id: 160, type: 'Reroute', inputs: [{ link: 21 }] }
+    const loopB = { id: 161, type: 'Reroute', inputs: [{ link: 20 }] }
+    const target = {
+      id: 3,
+      comfyClass: 'ComfyTV.ImageEditStage',
+      inputs: [{ name: 'image', link: 13 }, { name: 'mask', link: 22 }],
+    }
+    const graph = makeGraph([dangling, loopA, loopB, target])
+    graph.links.set(13, { origin_id: 150, origin_slot: 0 })
+    graph.links.set(22, { origin_id: 160, origin_slot: 0 })
+    graph.links.set(21, { origin_id: 161, origin_slot: 0 })
+    graph.links.set(20, { origin_id: 160, origin_slot: 0 })
+    const entry = await serializeNodeEntry(target)
+    expect('image' in entry.inputs).toBe(false)
+    expect('mask' in entry.inputs).toBe(false)
   })
 
   it('coerces invalid numeric widget to default or zero', async () => {

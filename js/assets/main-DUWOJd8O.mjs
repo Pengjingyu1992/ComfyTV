@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-CMT8YDne.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-DIkmLdgm.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86610,7 +86610,7 @@ const _sfc_main$4q = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-D3d3HWp_.mjs"),
+      loader: () => import("./AgentPanelRoot-Ytey1Wpp.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149309,7 +149309,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-C--Cei6C.mjs");
+    const { STLLoader } = await import("./STLLoader-CNtkJlLQ.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149317,7 +149317,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-D-9M446V.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-Bpcfi4uS.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -232730,24 +232730,32 @@ function bindOutputRestore(opts) {
 }
 const LG_MODE_NEVER = 2;
 const LG_MODE_BYPASS = 4;
+function linkOrigin(graph, linkId) {
+  var _a2, _b2, _c, _d, _e2;
+  const seen = /* @__PURE__ */ new Set();
+  let id = linkId;
+  while (id != null && !seen.has(id)) {
+    seen.add(id);
+    const link2 = (graph == null ? void 0 : graph.links) && typeof graph.links.get === "function" ? graph.links.get(id) : ((_a2 = graph == null ? void 0 : graph.links) == null ? void 0 : _a2[id]) ?? ((_b2 = graph == null ? void 0 : graph.getLink) == null ? void 0 : _b2.call(graph, id));
+    if (!link2 || link2.origin_id == null) return null;
+    const src = (_c = graph == null ? void 0 : graph.getNodeById) == null ? void 0 : _c.call(graph, link2.origin_id);
+    if ((src == null ? void 0 : src.type) !== "Reroute") return { id: link2.origin_id, slot: Number(link2.origin_slot) };
+    id = ((_e2 = (_d = src.inputs) == null ? void 0 : _d[0]) == null ? void 0 : _e2.link) ?? null;
+  }
+  return null;
+}
 function collectReachableNodeIds(app2, target) {
   var _a2, _b2, _c;
   const reachable = /* @__PURE__ */ new Set();
   reachable.add(target.id);
   const isBridgeIn = typeof (target == null ? void 0 : target.comfyClass) === "string" && target.comfyClass.startsWith("ComfyTV.BridgeTo");
-  const linksMap = (_a2 = app2 == null ? void 0 : app2.graph) == null ? void 0 : _a2.links;
-  const getLink = (linkId) => {
-    var _a3, _b3;
-    return linksMap && typeof linksMap.get === "function" ? linksMap.get(linkId) : (linksMap == null ? void 0 : linksMap[linkId]) ?? ((_b3 = (_a3 = app2 == null ? void 0 : app2.graph) == null ? void 0 : _a3.getLink) == null ? void 0 : _b3.call(_a3, linkId));
-  };
   const queue2 = [target];
   while (queue2.length) {
     const node = queue2.shift();
     if (!node) continue;
     for (const inp of node.inputs ?? []) {
       if (inp.link == null) continue;
-      const link2 = getLink(inp.link);
-      const srcId = link2 == null ? void 0 : link2.origin_id;
+      const srcId = (_a2 = linkOrigin(app2 == null ? void 0 : app2.graph, inp.link)) == null ? void 0 : _a2.id;
       if (srcId == null) continue;
       const srcNode = (_c = (_b2 = app2 == null ? void 0 : app2.graph) == null ? void 0 : _b2.getNodeById) == null ? void 0 : _c.call(_b2, srcId);
       if (!srcNode || reachable.has(srcNode.id)) continue;
@@ -232780,16 +232788,11 @@ async function serializeNodeEntry(node) {
       }
     }
   }
-  const graph = node.graph;
-  const getLink = (id) => {
-    var _a3, _b3;
-    return (graph == null ? void 0 : graph.links) && typeof graph.links.get === "function" ? graph.links.get(id) : ((_a3 = graph == null ? void 0 : graph.links) == null ? void 0 : _a3[id]) ?? ((_b3 = graph == null ? void 0 : graph.getLink) == null ? void 0 : _b3.call(graph, id));
-  };
   for (const slot of node.inputs ?? []) {
     if (slot.link == null) continue;
-    const link2 = getLink(slot.link);
-    if (!link2) continue;
-    inputs[slot.name] = [String(link2.origin_id), Number(link2.origin_slot)];
+    const origin = linkOrigin(node.graph, slot.link);
+    if (!origin) continue;
+    inputs[slot.name] = [String(origin.id), origin.slot];
   }
   return {
     inputs,
@@ -245319,4 +245322,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-DiWPvIlo.mjs.map
+//# sourceMappingURL=main-DUWOJd8O.mjs.map
