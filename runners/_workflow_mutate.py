@@ -51,9 +51,9 @@ def _auto_detect_result(workflow: dict, ctx_kind: str | None = None) -> dict:
     save_node_result = {
         'SaveImage':         image_default,
         'SaveImageAdvanced': image_default,
-        'SaveAnimatedWEBP': image_default,
-        'SaveAnimatedPNG':  image_default,
-        'PreviewImage':     image_default,
+        'SaveAnimatedWEBP':  image_default,
+        'SaveAnimatedPNG':   image_default,
+        'PreviewImage':      image_default,
         'SaveVideo':         'ui_save_url',
         'SaveAudio':         'ui_save_url',
         'SaveAudioMP3':      'ui_save_url',

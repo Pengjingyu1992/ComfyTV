@@ -248,6 +248,7 @@ class TestAutoDetectResult:
         assert lc._auto_detect_result(wf, "inpaint") == {
             "type": "ui_save_url", "node": "12",
         }
+
     def test_save_video(self):
         wf = {"5": {"class_type": "SaveVideo", "inputs": {}}}
         assert lc._auto_detect_result(wf, "video") == {
