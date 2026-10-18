@@ -15,6 +15,7 @@ from ._cli_common import (
     kill_process_tree,
     normalize_usage,
     run_cli_turn,
+    run_command,
 )
 from .providers import (
     AgentProvider,
@@ -298,13 +299,7 @@ class CodexCodeProvider(AgentProvider):
             self._probe_cache = (now, status)
             return status
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv, "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=base_spawn_env(),
-            )
-            out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+            _, out, _ = await run_command([*argv, "--version"], timeout=15, env=base_spawn_env())
             version = (out or b"").decode("utf-8", "replace").strip()
         except (OSError, asyncio.TimeoutError) as e:
             status = ProviderStatus(available=False, detail=f"version check failed: {e}")

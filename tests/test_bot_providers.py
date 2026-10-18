@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
+import time
 
 import pytest
 
 from conftest import wait_bot_done as _wait_done
+from ComfyTV.bot._cli_common import CliStreamParser, run_cli_turn, run_command
 from ComfyTV.bot.claude_code import _StreamParser, _tool_result_text
-from ComfyTV.bot.providers import BotEvent, TurnRequest
+from ComfyTV.bot.providers import BotEvent, TurnHandle, TurnRequest
 
 
 @pytest.fixture()
@@ -257,3 +261,26 @@ class TestModelOverride:
         await _wait_done(client, chat["id"])
         assert fake_provider.last_turn.model == ""
 
+
+async def test_run_command_kills_on_timeout():
+    started = time.monotonic()
+    with pytest.raises(asyncio.TimeoutError):
+        await run_command([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
+    assert time.monotonic() - started < 10
+
+
+async def test_cancelled_turn_kills_the_process(tmp_path):
+    handle = TurnHandle()
+
+    async def emit(ev):
+        pass
+
+    task = asyncio.create_task(run_cli_turn(
+        [sys.executable, "-c", "import time; time.sleep(30)"], cwd=str(tmp_path), env=None,
+        emit=emit, handle=handle, parser=CliStreamParser()))
+    while handle.process is None:
+        await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert handle.process.returncode is not None

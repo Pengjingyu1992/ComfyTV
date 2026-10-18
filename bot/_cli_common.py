@@ -108,6 +108,22 @@ def base_spawn_env() -> dict:
     return env
 
 
+async def run_command(argv: list[str], *, timeout: float,
+                      env: Optional[dict] = None) -> tuple[int, bytes, bytes]:
+    proc = await asyncio.create_subprocess_exec(
+        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    finally:
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+    return proc.returncode, out, err
+
+
 _USAGE_KEY_ALIASES = {
     "input_tokens": "input_tokens",
     "prompt_tokens": "input_tokens",
@@ -259,11 +275,12 @@ async def kill_process_tree(handle: TurnHandle) -> None:
         return
     try:
         if sys.platform == "win32":
-            await asyncio.create_subprocess_exec(
+            killer = await asyncio.create_subprocess_exec(
                 "taskkill", "/F", "/T", "/PID", str(proc.pid),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
+            await killer.wait()
         else:
             import signal
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -359,6 +376,8 @@ async def run_cli_turn(
                           aborted=True, usage=parser.usage)
     finally:
         stderr_task.cancel()
+        if proc.returncode is None:
+            await kill_process_tree(handle)
 
     if handle.stop_requested:
         return TurnResult(resume_token=parser.session_id, aborted=True,

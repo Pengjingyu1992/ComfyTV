@@ -13,6 +13,7 @@ from ._cli_common import (
     base_spawn_env,
     kill_process_tree,
     run_cli_turn,
+    run_command,
     tool_result_text,
 )
 from .providers import (
@@ -133,12 +134,7 @@ class ClaudeCodeProvider(AgentProvider):
             self._probe_cache = (now, status)
             return status
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv, "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+            _, out, _ = await run_command([*argv, "--version"], timeout=15)
             version = (out or b"").decode("utf-8", "replace").strip()
         except (OSError, asyncio.TimeoutError) as e:
             status = ProviderStatus(available=False, detail=f"version check failed: {e}")
