@@ -2,10 +2,12 @@ import json
 import uuid
 from typing import Optional
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, literal_column, select, update
 
 from .. import db
-from ..db import BotChat, BotMessage
+from ..db import BotChat, BotMessage, _now
+
+_INSERTED = literal_column("comfytv_bot_messages.rowid")
 
 
 def _prefs_from_json(raw: Optional[str]) -> list[str]:
@@ -133,7 +135,7 @@ def branch_bot_chat(chat_id: str, message_id: str) -> Optional[dict]:
         rows = s.execute(
             select(BotMessage)
             .where(BotMessage.chat_id == chat_id)
-            .order_by(BotMessage.created_at, BotMessage.id)
+            .order_by(_INSERTED)
         ).scalars().all()
         cut = next((i for i, r in enumerate(rows) if r.id == message_id), None)
         if cut is None:
@@ -177,7 +179,7 @@ def list_bot_messages(chat_id: str) -> list[dict]:
         rows = s.execute(
             select(BotMessage)
             .where(BotMessage.chat_id == chat_id)
-            .order_by(BotMessage.created_at, BotMessage.id)
+            .order_by(_INSERTED)
         ).scalars().all()
         return [_message_to_dict(r) for r in rows]
 
@@ -200,6 +202,7 @@ def create_bot_message(
             parent_id=parent_id,
         )
         s.add(row)
+        s.execute(update(BotChat).where(BotChat.id == chat_id).values(updated_at=_now()))
         s.commit()
         return _message_to_dict(row)
 

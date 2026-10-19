@@ -16,6 +16,18 @@ class TestConfig:
         assert st.available is False
         assert "Settings" in st.detail
 
+    async def test_probe_rechecks_after_the_url_changes(self):
+        provider = LocalLlmProvider(base_url="")
+        assert (await provider.probe()).available is False
+        provider._base_url_override = "http://x/v1"
+
+        async def fake_request(*a, **k):
+            return {"data": [{"id": "m1"}]}
+
+        provider._request_json = fake_request
+        st = await provider.probe()
+        assert st.available is True and st.version == "m1"
+
     async def test_send_without_url(self):
         provider = LocalLlmProvider(base_url="")
         result = await provider.send(
@@ -114,8 +126,8 @@ class TestWaitLoop:
             calls.append(dict(arguments))
             if len(calls) < 3:
                 return json.dumps({"status": "running",
-                                   "after_output_id": 100 + len(calls)})
-            return json.dumps({"status": "done", "output": {"id": 9}})
+                                   "after_output_id": 100 + len(calls)}), []
+            return json.dumps({"status": "done", "output": {"id": 9}}), []
 
         monkeypatch.setattr(provider, "_mcp_call_tool", fake_call)
         monkeypatch.setattr(provider, "_lms_bin", lambda: "")
@@ -141,14 +153,17 @@ class TestAgentLoop:
                                       "tool_calls": []}}]},
         ]
 
+        sent = []
+
         async def fake_request(session, method, url, *, headers,
                                json_body=None, timeout=120):
             if url.endswith("/chat/completions"):
+                sent.append(json_body["messages"])
                 return chat_responses.pop(0)
             return {"result": {"tools": [{"name": "server_info"}]}}
 
         async def fake_call(session, endpoint, name, arguments):
-            return '{"comfytv_version": "1.9.0"}'
+            return '{"comfytv_version": "1.9.0"}', ["data:image/png;base64,QUJD"]
 
         monkeypatch.setattr(provider, "_request_json", fake_request)
         monkeypatch.setattr(provider, "_mcp_call_tool", fake_call)
@@ -162,6 +177,33 @@ class TestAgentLoop:
         assert events[0].name == "server_info"
         assert events[1].text == '{"comfytv_version": "1.9.0"}'
         assert events[-1].text == "all good"
+        image_turn = sent[1][-1]
+        assert image_turn["role"] == "user"
+        assert image_turn["content"][1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}}
+
+    async def test_reasoning_streams_as_thinking(self, monkeypatch):
+        provider = LocalLlmProvider(base_url="http://x/v1", model="m1")
+        chat_responses = [
+            {"choices": [{"message": {"content": "", "reasoning_content": "check first",
+                                      "tool_calls": [{"id": "t1", "function": {"name": "server_info", "arguments": "{}"}}]}}]},
+            {"choices": [{"message": {"content": "<think>looks fine</think>all good", "tool_calls": []}}]},
+        ]
+
+        async def fake_request(session, method, url, *, headers, json_body=None, timeout=120):
+            if url.endswith("/chat/completions"):
+                return chat_responses.pop(0)
+            return {"result": {"tools": [{"name": "server_info"}]}}
+
+        async def fake_call(session, endpoint, name, arguments):
+            return "{}", []
+
+        monkeypatch.setattr(provider, "_request_json", fake_request)
+        monkeypatch.setattr(provider, "_mcp_call_tool", fake_call)
+        events: list[BotEvent] = []
+        await provider.send(TurnRequest(chat_id="c", user_text="hi", mcp_endpoint="http://x/mcp"),
+                            _collect(events), TurnHandle())
+        assert [(e.t, e.text) for e in events if e.t in ("thinking", "delta")] == [
+            ("thinking", "check first"), ("thinking", "looks fine"), ("delta", "all good")]
 
     async def test_usage_accumulates_and_tool_ids_flow(self, monkeypatch):
         provider = LocalLlmProvider(base_url="http://x/v1", model="m1")

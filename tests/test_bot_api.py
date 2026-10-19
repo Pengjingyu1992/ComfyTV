@@ -57,6 +57,8 @@ class TestBotEndpoints:
 
     async def test_send_assembles_blocks_and_title(self, client, fake_provider):
         fake_provider.script = [
+            BotEvent(t="thinking", text="Plan "),
+            BotEvent(t="thinking", text="first"),
             BotEvent(t="delta", text="I will "),
             BotEvent(t="delta", text="check."),
             BotEvent(t="tool_use", name="mcp__comfytv__get_canvas", input={}),
@@ -77,8 +79,9 @@ class TestBotEndpoints:
         assistant = data["messages"][-1]
         blocks = json.loads(assistant["content"])
         assert [b["type"] for b in blocks] == [
-            "text", "tool_use", "tool_result", "text"]
-        assert blocks[0]["text"] == "I will check."
+            "thinking", "text", "tool_use", "tool_result", "text"]
+        assert blocks[0]["text"] == "Plan first"
+        assert blocks[1]["text"] == "I will check."
         assert assistant["status"] == "done"
         assert assistant["resume_token_after"] == "tok-1"
         assert data["chat"]["resume_token"] == "tok-1"
@@ -326,6 +329,18 @@ class TestBotEndpoints:
         assert msgs[0]["id"] == msg["id"]
         assert msgs[0]["status"] == "aborted"
 
+    async def test_messages_keep_insertion_order_and_bump_the_chat(self, client):
+        from datetime import datetime, timezone
+        from sqlalchemy import update
+        from ComfyTV import db, storage
+        chat = storage.create_bot_chat(provider="fake-test")
+        ids = [storage.create_bot_message(chat_id=chat["id"], role="user")["id"] for _ in range(5)]
+        with db.get_session() as session:
+            session.execute(update(db.BotMessage).where(db.BotMessage.chat_id == chat["id"])
+                            .values(created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+            session.commit()
+        assert [m["id"] for m in storage.list_bot_messages(chat["id"])] == ids
+        assert storage.get_bot_chat(chat["id"])["updated_at"] > chat["updated_at"]
 
 async def test_spawned_tasks_are_kept_until_done():
     from ComfyTV.api import _common

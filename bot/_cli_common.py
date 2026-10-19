@@ -218,6 +218,9 @@ class CliStreamParser:
         if delta.get("type") == "text_delta" and delta.get("text"):
             self._saw_stream_delta = True
             return [BotEvent(t="delta", text=str(delta["text"]))]
+        if delta.get("type") == "thinking_delta" and delta.get("thinking"):
+            self._saw_stream_delta = True
+            return [BotEvent(t="thinking", text=str(delta["thinking"]))]
         return []
 
     def _parse_assistant(self, msg: dict) -> list[BotEvent]:
@@ -229,6 +232,10 @@ class CliStreamParser:
             if btype == "text" and block.get("text"):
                 if self._text_from_assistant and not self._saw_stream_delta:
                     events.append(BotEvent(t="delta", text=str(block["text"])))
+                continue
+            if btype == "thinking" and block.get("thinking"):
+                if self._text_from_assistant and not self._saw_stream_delta:
+                    events.append(BotEvent(t="thinking", text=str(block["thinking"])))
                 continue
             if btype != "tool_use":
                 continue

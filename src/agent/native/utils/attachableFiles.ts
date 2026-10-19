@@ -8,13 +8,13 @@ const MEDIA_ATTACHABLE_KINDS = new Set<MediaType>(['image', 'video', 'audio'])
    drop handler claims a raw File drop only when isAgentAttachable approves
    it, and a bare-dropped workflow .json must stay unclaimed so the graph
    loader (which only runs on an unclaimed drop) can still open it. */
-const EXTRA_ATTACHABLE_EXTENSIONS = new Set(['glb', 'md', 'txt'])
+const EXTRA_ATTACHABLE_EXTENSIONS = new Set(['glb', 'md', 'txt', 'docx'])
 
 /* The OS picker cannot express "any audio plus these extensions" through MIME
    alone (glb and md have no reliable browser MIME), so the accept list names
    the extensions explicitly alongside the media wildcards. */
 export const AGENT_ATTACH_ACCEPT =
-  'image/*,video/*,audio/*,.mp4,.m4a,.mov,.mp3,.wav,.glb,.md,.txt,.json,application/json'
+  'image/*,video/*,audio/*,.mp4,.m4a,.mov,.mp3,.wav,.glb,.md,.txt,.docx,.json,application/json'
 
 /**
  * Judged by file NAME, not MIME type: dragged glb/md/txt files carry an empty

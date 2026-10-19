@@ -64,6 +64,12 @@ class TestCodexParser:
         assert [(e.t, e.text) for e in second] == [("delta", "lo")]
         assert done == []
 
+    def test_reasoning_streams_as_thinking(self):
+        p = _CodexStreamParser()
+        events = p.parse_line(_line({"type": "item.completed", "item": {
+            "id": "r1", "type": "reasoning", "text": "plan it"}}))
+        assert [(e.t, e.text) for e in events] == [("thinking", "plan it")]
+
     def test_tool_use_emitted_once(self):
         p = _CodexStreamParser()
         item = {"id": "t1", "type": "mcp_tool_call",

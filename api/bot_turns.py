@@ -166,6 +166,12 @@ def _apply_event(state: _TurnState, ev: BotEvent) -> Optional[dict]:
         else:
             state.blocks.append({"type": "text", "text": ev.text})
         return {"event": "turn_delta", "text": ev.text}
+    if ev.t == "thinking":
+        if state.blocks and state.blocks[-1].get("type") == "thinking":
+            state.blocks[-1]["text"] += ev.text
+        else:
+            state.blocks.append({"type": "thinking", "text": ev.text})
+        return {"event": "turn_thinking", "text": ev.text}
     if ev.t == "tool_use":
         block = {"type": "tool_use", "name": ev.name, "input": ev.input or {}}
         payload = {"event": "turn_tool_use", "name": ev.name,

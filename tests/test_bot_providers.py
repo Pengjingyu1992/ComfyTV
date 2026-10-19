@@ -38,14 +38,14 @@ class TestStreamParser:
         }))
         assert [(e.t, e.text) for e in events] == [("delta", "hel")]
 
-    def test_thinking_delta_ignored(self):
+    def test_thinking_delta_streams_as_thinking(self):
         p = _StreamParser()
         events = p.parse_line(_line({
             "type": "stream_event",
             "event": {"type": "content_block_delta",
                       "delta": {"type": "thinking_delta", "thinking": "hmm"}},
         }))
-        assert events == []
+        assert [(e.t, e.text) for e in events] == [("thinking", "hmm")]
 
     def test_tool_use_dedupes_across_snapshots(self):
         p = _StreamParser()

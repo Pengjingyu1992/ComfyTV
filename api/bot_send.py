@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from .. import storage
 from . import bot_turns
+from .bot_docs import DOC_ERRORS, DOC_EXT, document_line, read_document
 from .bot_media import _prepare_attachment, _render_attachment
 from .bot_turns import ACTIVE_TURNS, QUEUED, _begin_turn
 
@@ -37,6 +38,11 @@ def _prepare_input_file(name: str) -> tuple[Optional[dict], str]:
             pass
         seen = " The image below is its middle frame." if block else ""
         return block, f"[Attached video: input/{name} — use media_probe for facts.{seen}]"
+    if path.lower().endswith(DOC_EXT):
+        try:
+            return None, document_line(f"input/{name}", read_document(path))
+        except DOC_ERRORS as e:
+            return None, f"[Attached document: input/{name} — could not read its text ({e})]"
     return None, f"[Attached file: input/{name} ({mime or 'unknown type'})]"
 
 

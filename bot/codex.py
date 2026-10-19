@@ -190,12 +190,12 @@ class _CodexStreamParser:
         item_type = item.get("type")
         item_id = str(item.get("id") or "")
 
-        if item_type == "agent_message":
+        if item_type in ("agent_message", "reasoning"):
             text = str(item.get("text") or "")
             emitted = self._text_emitted.get(item_id, 0)
             delta = text[emitted:] if len(text) >= emitted else text
             self._text_emitted[item_id] = len(text)
-            return [BotEvent(t="delta", text=delta)] if delta else []
+            return [BotEvent(t="delta" if item_type == "agent_message" else "thinking", text=delta)] if delta else []
 
         if item_type == "mcp_tool_call":
             name = str(item.get("tool") or "")

@@ -171,10 +171,10 @@ class DeepSeekHarnessProvider(AgentProvider):
     async def _on_update(self, update: dict, emit: EmitFn, names: dict[str, str]) -> None:
         kind = update.get("sessionUpdate")
         call_id = str(update.get("toolCallId") or "")
-        if kind == "agent_message_chunk":
+        if kind in ("agent_message_chunk", "agent_thought_chunk"):
             content = update.get("content") or {}
             if content.get("type") == "text" and content.get("text"):
-                await emit(BotEvent(t="delta", text=content["text"]))
+                await emit(BotEvent(t="delta" if kind == "agent_message_chunk" else "thinking", text=content["text"]))
         elif kind == "config_option_update":
             self._catalog = model_options_from(update.get("configOptions")) or self._catalog
         elif kind == "tool_call":

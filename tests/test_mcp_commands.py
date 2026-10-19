@@ -108,6 +108,15 @@ class TestCommandRegistry:
         with pytest.raises(ValueError, match="stage 9 not found"):
             await task
 
+    async def test_non_object_result_is_kept(self, client, sent):
+        from ComfyTV.api.mcp_commands import submit_command
+        task = asyncio.ensure_future(submit_command("get_canvas", {}, timeout=5.0))
+        await asyncio.sleep(0)
+        await client.post("/comfytv/mcp_command_result", json={
+            "command_id": sent[0][1]["id"], "ok": True, "result": ["a", "b"],
+        })
+        assert await task == {"result": ["a", "b"]}
+
     async def test_unknown_result_is_ignored(self, client):
         resp = await client.post("/comfytv/mcp_command_result", json={
             "command_id": "deadbeef", "ok": True, "result": {},

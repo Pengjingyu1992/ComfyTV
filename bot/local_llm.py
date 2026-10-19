@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
@@ -35,6 +36,7 @@ _MAX_ITERATIONS = 80
 _MAX_WAIT_SLICES = 12
 _LLM_TIMEOUT_S = 300
 _HISTORY_CHAR_CAP = 16_000
+_THINK_RE = re.compile(r"(?:<think>|^)([\s\S]*?)</think>|<think>([\s\S]*)$")
 
 _SYSTEM_PROMPT = (
     "You are the ComfyTV canvas bot. The provided tools are your eyes and "
@@ -80,7 +82,7 @@ class LocalLlmProvider(AgentProvider):
                  model: Optional[str] = None) -> None:
         self._base_url_override = base_url
         self._model_override = model
-        self._probe_cache: Optional[tuple[float, ProviderStatus]] = None
+        self._probe_cache: Optional[tuple[float, str, ProviderStatus]] = None
 
     def capabilities(self) -> ProviderCaps:
         return ProviderCaps(stateful=False, tools="mcp", attachments=True)
@@ -123,16 +125,16 @@ class LocalLlmProvider(AgentProvider):
 
     async def probe(self) -> ProviderStatus:
         now = time.monotonic()
-        if self._probe_cache and now - self._probe_cache[0] < PROBE_CACHE_S:
-            return self._probe_cache[1]
         base = self._base_url()
+        if self._probe_cache and self._probe_cache[1] == base and now - self._probe_cache[0] < PROBE_CACHE_S:
+            return self._probe_cache[2]
         if not base:
             status = ProviderStatus(
                 available=False,
                 detail="no endpoint configured — set the Local LLM endpoint "
                        "URL under Settings → Agent & MCP",
             )
-            self._probe_cache = (now, status)
+            self._probe_cache = (now, base, status)
             return status
         try:
             async with aiohttp.ClientSession() as session:
@@ -154,7 +156,7 @@ class LocalLlmProvider(AgentProvider):
                 )
         except Exception as e:
             status = ProviderStatus(available=False, detail=str(e))
-        self._probe_cache = (now, status)
+        self._probe_cache = (now, base, status)
         return status
 
     async def list_models(self) -> list[str]:
@@ -240,7 +242,7 @@ class LocalLlmProvider(AgentProvider):
 
     async def _mcp_call_tool(self, session: aiohttp.ClientSession,
                              endpoint: str, name: str,
-                             arguments: dict) -> str:
+                             arguments: dict) -> tuple[str, list[str]]:
         data = await self._request_json(
             session, "POST", endpoint, headers=self._mcp_headers(),
             json_body={"jsonrpc": "2.0", "id": f"call-{name}",
@@ -249,10 +251,14 @@ class LocalLlmProvider(AgentProvider):
             timeout=560 if name == "ask_user" else 200,
         )
         result = data.get("result") or {}
-        text = self._extract_text(result.get("content"))
+        content = result.get("content")
+        text = self._extract_text(content)
+        images = [f"data:{b.get('mimeType') or 'image/png'};base64,{b['data']}"
+                  for b in content or [] if isinstance(b, dict)
+                  and b.get("type") == "image" and b.get("data")]
         if result.get("isError"):
-            return "[tool error] " + text
-        return text
+            return "[tool error] " + text, []
+        return text, images
 
     @staticmethod
     def _extract_text(content: object) -> str:
@@ -304,7 +310,7 @@ class LocalLlmProvider(AgentProvider):
             for _ in range(_MAX_WAIT_SLICES):
                 if handle.stop_requested:
                     break
-                raw = await self._mcp_call_tool(
+                raw, _images = await self._mcp_call_tool(
                     session, endpoint, "wait_stage", args)
                 try:
                     data = json.loads(raw)
@@ -369,8 +375,13 @@ class LocalLlmProvider(AgentProvider):
                     usage = merge_usage(usage, data.get("usage"))
                     message = (data.get("choices") or [{}])[0].get("message") or {}
                     content = self._extract_text(message.get("content") or "")
+                    thought = _THINK_RE.search(content)
+                    reasoning = str(message.get("reasoning_content") or message.get("reasoning") or "") or (thought.group(1) or thought.group(2) or "" if thought else "")
+                    content = _THINK_RE.sub("", content).strip()
                     tool_calls = message.get("tool_calls") or []
 
+                    if reasoning.strip():
+                        await emit(BotEvent(t="thinking", text=reasoning.strip()))
                     if content:
                         await emit(BotEvent(t="delta", text=content))
                     if not tool_calls:
@@ -398,13 +409,14 @@ class LocalLlmProvider(AgentProvider):
                         await emit(BotEvent(t="tool_use", name=name, input=args,
                                             id=tc_id))
                         tool_failed = False
+                        images: list[str] = []
                         try:
                             if name == "wait_stage":
                                 result_text = await self._wait_stage_done(
                                     session, turn.mcp_endpoint, args, model,
                                     handle)
                             else:
-                                result_text = await self._mcp_call_tool(
+                                result_text, images = await self._mcp_call_tool(
                                     session, turn.mcp_endpoint, name, args)
                         except Exception as e:
                             result_text = f"[error] {type(e).__name__}: {e}"
@@ -421,6 +433,13 @@ class LocalLlmProvider(AgentProvider):
                             "tool_call_id": tc_id or name,
                             "content": result_text,
                         })
+                        if images:
+                            messages.append({"role": "user", "content": [
+                                {"type": "text",
+                                 "text": f"Images returned by {name}:"},
+                                *({"type": "image_url", "image_url": {"url": u}}
+                                  for u in images),
+                            ]})
                 return TurnResult(error="too many tool-call iterations",
                                   usage=usage)
         except asyncio.CancelledError:

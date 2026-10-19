@@ -91,7 +91,7 @@ async def post_command_result(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "reason": "unknown or expired command"})
     if body.get("ok"):
         result = body.get("result")
-        future.set_result(result if isinstance(result, dict) else {})
+        future.set_result(result if isinstance(result, dict) else {"result": result})
     else:
         error = body.get("error")
         future.set_exception(ValueError(

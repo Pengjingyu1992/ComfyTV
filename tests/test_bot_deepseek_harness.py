@@ -254,6 +254,14 @@ class TestTurn:
         assert tool_result.name == "mcp__comfytv__server_info" and tool_result.id == "t1"
         assert events[2].input == {"a": 1}
 
+    async def test_thoughts_stream_as_thinking(self, fake_runtime):
+        fake_runtime(updates=[
+            {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "plan"}},
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}},
+        ])
+        _result, events = await _turn(TurnRequest(chat_id="c1", user_text="hi"))
+        assert [(e.t, e.text) for e in events if e.t != "session"] == [("thinking", "plan"), ("delta", "done")]
+
     async def test_failed_tool_is_flagged(self, fake_runtime):
         fake_runtime(updates=[
             {"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "mcp__comfytv__run_stage"},

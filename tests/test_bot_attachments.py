@@ -290,3 +290,37 @@ class TestReplayBlocksText:
             {"type": "text", "text": "done"},
         ])
         assert _blocks_text(content) == "done"
+
+
+class TestDocumentInputs:
+    def test_markdown_text_is_inlined(self, tmp_path, monkeypatch):
+        from ComfyTV.api import bot_send
+        doc = tmp_path / "brief.md"
+        doc.write_text("# Brief\nMake it blue", encoding="utf-8")
+        monkeypatch.setattr(bot_send, "_input_path", lambda name: str(doc))
+        block, line = bot_send._prepare_input_file("brief.md")
+        assert block is None
+        assert "Make it blue" in line and "input/brief.md" in line
+
+    def test_docx_paragraphs_and_headings(self, tmp_path, monkeypatch):
+        import zipfile
+        from ComfyTV.api import bot_send
+        w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        body = (f'<w:document {w}><w:body>'
+                '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Goals</w:t></w:r></w:p>'
+                '<w:p><w:r><w:t>Ship </w:t></w:r><w:r><w:t>it</w:t></w:r></w:p>'
+                '</w:body></w:document>')
+        doc = tmp_path / "plan.docx"
+        with zipfile.ZipFile(doc, "w") as z:
+            z.writestr("word/document.xml", body)
+        monkeypatch.setattr(bot_send, "_input_path", lambda name: str(doc))
+        _block, line = bot_send._prepare_input_file("plan.docx")
+        assert "## Goals\nShip it" in line
+
+    def test_broken_docx_degrades_to_a_note(self, tmp_path, monkeypatch):
+        from ComfyTV.api import bot_send
+        doc = tmp_path / "bad.docx"
+        doc.write_bytes(b"not a zip")
+        monkeypatch.setattr(bot_send, "_input_path", lambda name: str(doc))
+        _block, line = bot_send._prepare_input_file("bad.docx")
+        assert "could not read its text" in line
