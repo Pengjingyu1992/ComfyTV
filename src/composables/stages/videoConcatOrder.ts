@@ -8,6 +8,5 @@ export function parseOrder(raw: string): string[] {
 }
 
 export function reconcileOrder(saved: string[], currentKeys: string[]): string[] {
-  const kept = saved.filter(k => currentKeys.includes(k))
-  return [...kept, ...currentKeys.filter(k => !kept.includes(k))]
+  return [...saved, ...currentKeys.filter(k => !saved.includes(k))]
 }

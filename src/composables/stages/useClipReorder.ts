@@ -89,10 +89,10 @@ export function useClipReorder(
     const from = dragTargetIdx.value
     const target = tileTargetIndex(e.clientX)
     if (from < 0 || target === from) return
-    const next = [...order.value]
+    const next = orderedClips.value.map(c => c.key)
     const [moved] = next.splice(from, 1)
     next.splice(target, 0, moved)
-    order.value = next
+    order.value = [...next, ...order.value.filter(k => !next.includes(k))]
   }
 
   function onTileUp(): void {

@@ -22,8 +22,8 @@ describe('reconcileOrder', () => {
   it('keeps saved order for still-connected keys', () => {
     expect(reconcileOrder(['b', 'a'], ['a', 'b'])).toEqual(['b', 'a'])
   })
-  it('drops disconnected keys', () => {
-    expect(reconcileOrder(['b', 'gone', 'a'], ['a', 'b'])).toEqual(['b', 'a'])
+  it('keeps keys whose input is not resolved yet in place', () => {
+    expect(reconcileOrder(['b', 'pending', 'a'], ['a', 'b'])).toEqual(['b', 'pending', 'a'])
   })
   it('appends newly connected keys at the end', () => {
     expect(reconcileOrder(['b', 'a'], ['a', 'b', 'c'])).toEqual(['b', 'a', 'c'])
@@ -31,7 +31,7 @@ describe('reconcileOrder', () => {
   it('handles empty saved order', () => {
     expect(reconcileOrder([], ['a', 'b'])).toEqual(['a', 'b'])
   })
-  it('handles empty current keys', () => {
-    expect(reconcileOrder(['a', 'b'], [])).toEqual([])
+  it('keeps the saved order while no input is resolved yet', () => {
+    expect(reconcileOrder(['a', 'b'], [])).toEqual(['a', 'b'])
   })
 })

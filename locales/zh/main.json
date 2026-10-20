@@ -35,6 +35,7 @@
       "grade": "调色 · 编辑",
       "compare": "对比 · 编辑",
       "gridSplit": "宫格切分 · 编辑",
+      "imageConcat": "图片拼接 · 编辑",
       "compareHint": "接入 A、B 两张图开始对比",
       "wired": "已接入",
       "empty": "未接入"
@@ -1225,6 +1226,10 @@
         "label": "宫格切分",
         "tooltip": "按 R×C 切成多张（浏览器端）→ 图片批次"
       },
+      "concat": {
+        "label": "图片拼接",
+        "tooltip": "把多张图横排、竖排或按宫格拼成一张（浏览器端）"
+      },
       "ken-burns": {
         "label": "静帧推拉",
         "tooltip": "静态图片动画缩放平移成视频"
@@ -1875,6 +1880,25 @@
     "cols": "列",
     "border": "边框",
     "outerBorder": "包括外框"
+  },
+  "imageConcat": {
+    "connectImages": "请连接图片或图片批次以拼接",
+    "noInputs": "没有输入图片 — 请在上游连接图片",
+    "dragToReorder": "拖动缩略图调整拼接顺序",
+    "composing": "正在拼接 {n} 张图…",
+    "done": "已拼成 {w} × {h} — 下游可直接使用",
+    "layout": {
+      "horizontal": "横排",
+      "vertical": "竖排",
+      "grid": "宫格"
+    },
+    "cols": "列",
+    "gap": "间距",
+    "outerGap": "包括外框",
+    "bg": "填充",
+    "transparent": "透明",
+    "white": "白",
+    "black": "黑"
   },
   "panoramaView": {
     "connectPanorama": "请在上游接入全景图",

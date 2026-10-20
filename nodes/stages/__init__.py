@@ -12,7 +12,7 @@ from .edits import (
     EraseStage, CutoutStage, CropStage, RotateStage, MirrorStage,
     ColorGradeStage,
     GridSplitStage, CompareStage, ImageVariationsStage, RelightStage,
-    MultiangleStage,
+    MultiangleStage, ImageConcatStage,
 )
 from .timeline import (
     DirectorTimelineStage, TimelineVideoStage,
@@ -131,7 +131,7 @@ def stage_classes() -> list:
         MultiangleStage, RelightStage, ImageVariationsStage,
         UpscaleStage, OutpaintStage, InpaintStage, ImageEditStage,
         EraseStage, CutoutStage, CropStage,
-        RotateStage, MirrorStage, ColorGradeStage, CompareStage, GridSplitStage,
+        RotateStage, MirrorStage, ColorGradeStage, CompareStage, GridSplitStage, ImageConcatStage,
         VideoExtractFrameStage, VideoFramesStage,
         VideoClipStage, VideoCropStage, VideoConcatStage, VideoResizeStage,
         VideoSpeedStage, VideoRotateStage, VideoSplitStage,

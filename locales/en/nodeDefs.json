@@ -87,6 +87,9 @@
     "GridSplitStage": {
       "display_name": "Grid Split"
     },
+    "ImageConcatStage": {
+      "display_name": "Image Concat"
+    },
     "ImageEditStage": {
       "display_name": "Image Edit"
     },
@@ -972,6 +975,19 @@
         "name": "Images"
       },
       "1": {
+        "name": "Image"
+      }
+    }
+  },
+  "ComfyTV_ImageConcatStage": {
+    "display_name": "Image Concat",
+    "inputs": {
+      "batch": {
+        "name": "Batch"
+      }
+    },
+    "outputs": {
+      "0": {
         "name": "Image"
       }
     }

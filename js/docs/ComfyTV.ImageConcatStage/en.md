@@ -1,0 +1,54 @@
+# Image Concat
+
+> Join several images into one — side by side, stacked or in a grid — instantly in the browser, no Run.
+
+## What this node does
+
+**Image Concat** joins upstream images into a single image. It has a growable **images** input (up to 12 slots)
+and a **batch** input that takes a whole image batch from **Grid Split**, **Image Stage** and similar nodes;
+every image in the batch joins the concat.
+
+The reorder strip in the node body sets the order — drag the thumbnails and the order is stored in the hidden
+**clip_order** field. Changing the order or any setting re-joins the images after about 0.25 s, and the result
+is a `COMFYTV_IMAGE` for downstream nodes.
+
+## When to use it
+
+- Put character sheets or storyboard frames side by side in one image.
+- Edit the cells from **Grid Split**, then join them back with the same columns and gap.
+- Prepare one combined reference image for a model.
+
+## Parameters
+
+### layout
+- **Row**: one row; every image is scaled to the height of the first image.
+- **Column**: one column; every image is scaled to the width of the first image.
+- **Grid**: every cell is the size of the first image; other images are scaled to fit and centered.
+
+### cols
+Images per row in grid layout. Capped at the number of images.
+
+### gap / outer_gap
+Space between images, in pixels of the first image. **Outer gap** adds the same margin around the whole image.
+These match **Grid Split**'s border / outer border: the same columns and values join split cells back to the
+original size.
+
+### bg
+Fill color for gaps and empty grid space. Transparent by default; white, black or a custom color are available.
+
+## Outputs
+
+| Output | Type | Meaning |
+|---|---|---|
+| **image** | `COMFYTV_IMAGE` | The joined PNG. |
+
+## Tips
+
+- The order comes from the reorder strip, not slot numbers. Batch images show as B1, B2…; single inputs as #0, #1….
+- Browser canvases cap a side at about 16384 px; a larger result is scaled down uniformly to fit.
+
+## Related nodes
+
+- **Grid Split** — splits one image into a grid; the reverse of this node.
+- **Video Concat** — joins video clips end to end.
+- **Compare** — shows two images side by side without producing a new one.

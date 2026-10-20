@@ -155,6 +155,54 @@ class GridSplitStage(io.ComfyNode):
         return io.NodeOutput(_json.dumps({"images": [image] if image else []}), image)
 
 
+class ImageConcatStage(io.ComfyNode):
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="ComfyTV.ImageConcatStage",
+            display_name="Image Concat",
+            category="ComfyTV/Compose",
+            inputs=[
+                *_standard_stage_inputs(),
+                io.String.Input("clip_order", default="", multiline=False,
+                                socketless=True, extra_dict={"hidden": True},
+                                tooltip="JSON list of image keys in concat order — "
+                                        "driven by the reorder strip in the node body."),
+                io.Combo.Input("layout", options=['horizontal', 'vertical', 'grid'],
+                               default='horizontal', socketless=True, extra_dict={"hidden": True},
+                               tooltip="horizontal = one row (heights matched to the first image), "
+                                       "vertical = one column (widths matched), grid = cols per row."),
+                io.Int.Input("cols", default=2, min=1, max=12, step=1,
+                             socketless=True, extra_dict={"hidden": True},
+                             tooltip="Columns per row in grid layout."),
+                io.Int.Input("gap", default=0, min=0, max=4096, step=1,
+                             socketless=True, extra_dict={"hidden": True},
+                             tooltip="Gap between images, in px of the first image."),
+                io.Boolean.Input("outer_gap", default=False,
+                                 socketless=True, extra_dict={"hidden": True},
+                                 tooltip="Also put the gap around the outer edges."),
+                io.String.Input("bg", default="", multiline=False,
+                                socketless=True, extra_dict={"hidden": True},
+                                tooltip="CSS fill color for gaps and empty grid space; empty = transparent."),
+                COMFYTV_IMAGES.Input("batch", optional=True,
+                                     tooltip="Image batch (e.g. Grid Split or Image Stage output); "
+                                             "each item joins the concat."),
+                io.Autogrow.Input("images", template=_image_template(12)),
+            ],
+            outputs=[COMFYTV_IMAGE.Output("image")],
+            is_output_node=True,
+            hidden=[io.Hidden.unique_id],
+        )
+
+    @classmethod
+    def execute(cls, force_run_token=0, project_id="", parent_output_id=0,
+                clip_order="", layout='horizontal', cols=2, gap=0, outer_gap=False,
+                bg="", batch=None, images=None):
+        first = next((v for v in _autogrow_values(images) if v), "")
+        return io.NodeOutput(first or (_pick_image_from_batch(batch, 1) if batch else ""))
+
+
 class CompareStage(io.ComfyNode):
 
     @classmethod

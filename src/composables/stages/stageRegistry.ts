@@ -26,6 +26,7 @@ import MeshOpStageCard from '@/components/stages/MeshOpStageCard.vue'
 import MeshPrimitiveStageCard from '@/components/stages/MeshPrimitiveStageCard.vue'
 import MeshBooleanStageCard from '@/components/stages/MeshBooleanStageCard.vue'
 import GridSplitStageCard from '@/components/stages/GridSplitStageCard.vue'
+import ImageConcatStageCard from '@/components/stages/ImageConcatStageCard.vue'
 import DirectorTimelineStageCard from '@/components/stages/DirectorTimelineStageCard.vue'
 import DirectorStageCard from '@/components/stages/DirectorStageCard.vue'
 import OutpaintStageCard from '@/components/stages/OutpaintStageCard.vue'
@@ -222,6 +223,7 @@ export const RICH_STAGE_CARDS: Record<string, any> = {
   'ComfyTV.MeshBooleanStage':         MeshBooleanStageCard,
   'ComfyTV.LineArtStage':             LineArtStageCard,
   'ComfyTV.GridSplitStage':           GridSplitStageCard,
+  'ComfyTV.ImageConcatStage':         ImageConcatStageCard,
   'ComfyTV.DirectorTimelineStage':    DirectorTimelineStageCard,
   'ComfyTV.DirectorStage':            DirectorStageCard,
   'ComfyTV.OutpaintStage':            OutpaintStageCard,
@@ -373,6 +375,7 @@ export const RICH_STAGE_MIN_HEIGHTS: Record<string, number> = {
   'ComfyTV.MeshBooleanStage':         760,
   'ComfyTV.LineArtStage':             720,
   'ComfyTV.GridSplitStage':           560,
+  'ComfyTV.ImageConcatStage':         560,
   'ComfyTV.OutpaintStage':            620,
   'ComfyTV.Scene3DStage':             640,
   'ComfyTV.BlenderSceneStage':        720,

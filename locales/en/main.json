@@ -35,6 +35,7 @@
       "grade": "Color Grade · Edit",
       "compare": "Compare · Edit",
       "gridSplit": "Grid Split · Edit",
+      "imageConcat": "Image Concat · Edit",
       "compareHint": "Wire two images into A and B to compare",
       "wired": "wired",
       "empty": "empty"
@@ -1225,6 +1226,10 @@
         "label": "Grid Split",
         "tooltip": "Slice into an R×C grid of tiles (browser-side) → image batch"
       },
+      "concat": {
+        "label": "Image Concat",
+        "tooltip": "Join several images side by side, stacked or in a grid (browser-side)"
+      },
       "ken-burns": {
         "label": "Ken Burns",
         "tooltip": "Animated zoom & pan into a video"
@@ -1875,6 +1880,25 @@
     "cols": "Cols",
     "border": "Border",
     "outerBorder": "Outer border"
+  },
+  "imageConcat": {
+    "connectImages": "Connect images or an image batch to concat",
+    "noInputs": "No input images — connect images upstream",
+    "dragToReorder": "Drag tiles to set the concat order",
+    "composing": "Joining {n} images…",
+    "done": "Joined into {w} × {h} — ready for downstream",
+    "layout": {
+      "horizontal": "Row",
+      "vertical": "Column",
+      "grid": "Grid"
+    },
+    "cols": "Cols",
+    "gap": "Gap",
+    "outerGap": "Outer gap",
+    "bg": "Fill",
+    "transparent": "None",
+    "white": "White",
+    "black": "Black"
   },
   "panoramaView": {
     "connectPanorama": "Connect a panorama upstream",

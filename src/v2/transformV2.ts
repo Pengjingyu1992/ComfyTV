@@ -14,6 +14,7 @@ import { attachOutputToolbar } from '@/v2/outputToolbar'
 import CompareEditorV2 from '@/v2/CompareEditorV2.vue'
 import GradeEditorV2 from '@/v2/GradeEditorV2.vue'
 import GridSplitEditorV2 from '@/v2/GridSplitEditorV2.vue'
+import ImageConcatEditorV2 from '@/v2/ImageConcatEditorV2.vue'
 import MirrorEditorV2 from '@/v2/MirrorEditorV2.vue'
 import RotateEditorV2 from '@/v2/RotateEditorV2.vue'
 import type { StageKind, StageVariant } from '@/stores/stageStore'
@@ -229,6 +230,7 @@ const ICON_ROTATE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const ICON_MIRROR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18" stroke-dasharray="2.4 2.4"/><path d="M8.5 7.5L4 12l4.5 4.5zM15.5 7.5L20 12l-4.5 4.5z"/></svg>`
 const ICON_GRADE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="10" r="5.5"/><circle cx="15" cy="14" r="5.5"/><path d="M12.2 6.2a5.5 5.5 0 012.6 3.4M11.8 17.8a5.5 5.5 0 01-2.6-3.4" opacity=".5"/></svg>`
 const ICON_COMPARE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 3.5v17"/><path d="M6.5 12h3M14.5 12h3M8 10l1.5 2L8 14M16 10l-1.5 2 1.5 2"/></svg>`
+const ICON_CONCAT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="6" width="8" height="12" rx="1.5"/><rect x="13.5" y="6" width="8" height="12" rx="1.5"/><path d="M10.5 12h3"/></svg>`
 const ICON_GRIDSPLIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 3.5v17M3.5 12h17"/></svg>`
 
 let extraCssInstalled = false
@@ -323,4 +325,7 @@ V2_SHELLS['ComfyTV.CompareStage'] = makeEditorShell({
 })
 V2_SHELLS['ComfyTV.GridSplitStage'] = makeEditorShell({
   component: GridSplitEditorV2, titleKey: 'v2.ed.gridSplit', icon: ICON_GRIDSPLIT, minH: 460,
+})
+V2_SHELLS['ComfyTV.ImageConcatStage'] = makeEditorShell({
+  component: ImageConcatEditorV2, titleKey: 'v2.ed.imageConcat', icon: ICON_CONCAT, minH: 560,
 })

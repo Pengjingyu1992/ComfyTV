@@ -87,6 +87,9 @@
     "GridSplitStage": {
       "display_name": "宫格分割"
     },
+    "ImageConcatStage": {
+      "display_name": "图片拼接"
+    },
     "ImageEditStage": {
       "display_name": "图像编辑"
     },
@@ -972,6 +975,19 @@
         "name": "图像组"
       },
       "1": {
+        "name": "图像"
+      }
+    }
+  },
+  "ComfyTV_ImageConcatStage": {
+    "display_name": "图片拼接",
+    "inputs": {
+      "batch": {
+        "name": "图像组"
+      }
+    },
+    "outputs": {
+      "0": {
         "name": "图像"
       }
     }

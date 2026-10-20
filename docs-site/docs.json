@@ -145,6 +145,7 @@
                   "node-reference/rotate",
                   "node-reference/mirror",
                   "node-reference/grid-split",
+                  "node-reference/image-concat",
                   "node-reference/color-grade"
                 ]
               },
@@ -500,6 +501,7 @@
                   "zh/node-reference/rotate",
                   "zh/node-reference/mirror",
                   "zh/node-reference/grid-split",
+                  "zh/node-reference/image-concat",
                   "zh/node-reference/color-grade"
                 ]
               },

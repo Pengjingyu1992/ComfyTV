@@ -18,7 +18,7 @@ const CATEGORY_GROUPS = [
   ['Generate', ['TextStage', 'ImageStage', 'VideoStage', 'AudioStage', 'SpeechStage', 'Model3DStage', 'ShotImagesStage', 'StoryboardStage']],
   ['Pick & Compare', ['ImagePickerStage', 'AudioPickerStage', 'VideoPickerStage', 'CompareStage', 'ContactSheetStage']],
   ['Image · Edit', ['ImageEditStage', 'InpaintStage', 'OutpaintStage', 'EraseStage', 'CutoutStage', 'UpscaleStage', 'RelightStage', 'ImageVariationsStage', 'MultiangleStage', 'SplitPartStage']],
-  ['Image · Transform', ['CropStage', 'RotateStage', 'MirrorStage', 'GridSplitStage', 'ColorGradeStage']],
+  ['Image · Transform', ['CropStage', 'RotateStage', 'MirrorStage', 'GridSplitStage', 'ImageConcatStage', 'ColorGradeStage']],
   ['2D Editors', ['LayerEditorStage', 'PosterStage', 'StoryboardEditorStage']],
   ['Panorama', ['PanoramaStage', 'PanoramaCurrentViewStage', 'PanoramaMultiViewStage']],
   ['3D', ['Scene3DStage', 'MaterialStage', 'MeshPrimitiveStage', 'MeshOpStage', 'MeshBooleanStage', 'MeshBakeMapsStage', 'LineArtStage']],

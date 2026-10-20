@@ -53,7 +53,7 @@ class TestSchemaDefinitions:
         "UpscaleStage", "InpaintStage", "OutpaintStage", "EraseStage",
         "ImageEditStage", "ImageVariationsStage", "RelightStage",
         "MultiangleStage", "CutoutStage", "CropStage", "RotateStage",
-        "MirrorStage", "CompareStage", "GridSplitStage",
+        "MirrorStage", "CompareStage", "GridSplitStage", "ImageConcatStage",
         # Panorama
         "PanoramaStage", "PanoramaCurrentViewStage", "PanoramaMultiViewStage",
         # Timeline
@@ -382,6 +382,15 @@ class TestTransformStageExecute:
                                      rows=2, cols=2)
         data = json.loads(out.values[0])
         assert len(data["images"]) == 4
+
+    def test_image_concat_passes_first_image(self, reset_db):
+        from ComfyTV.nodes.stages.edits import ImageConcatStage
+        out = ImageConcatStage.execute(project_id="default",
+                                       images={"images.image0": "", "images.image1": "/view?b"})
+        assert out.values[0] == "/view?b"
+        batch = json.dumps({"images": [{"index": "1", "image_url": "/view?c"}]})
+        out = ImageConcatStage.execute(project_id="default", batch=batch, images=None)
+        assert out.values[0] == "/view?c"
 
     def test_compare(self, reset_db):
         from ComfyTV.nodes.stages.edits import CompareStage

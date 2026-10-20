@@ -69,8 +69,19 @@ describe('useClipReorder — order sync', () => {
     const { api, clips, node } = setup('["video1","video0"]', [clip(0), clip(1)])
     clips.value = [clip(0), clip(2)]
     await nextTick()
-    expect(api.order.value).toEqual(['video0', 'video2'])
-    expect(node.widgets[0].value).toBe('["video0","video2"]')
+    expect(api.orderedClips.value.map(c => c.key)).toEqual(['video0', 'video2'])
+    expect(node.widgets[0].value).toBe('["video1","video0","video2"]')
+  })
+
+  it('keeps the saved order when configure runs before inputs resolve', async () => {
+    const { api, clips, node } = setup('', [])
+    node.widgets[0].value = '["video1","video0"]'
+    node.onConfigure({})
+    await nextTick()
+    clips.value = [clip(0), clip(1)]
+    await nextTick()
+    expect(api.orderedClips.value.map(c => c.key)).toEqual(['video1', 'video0'])
+    expect(node.widgets[0].value).toBe('["video1","video0"]')
   })
 
   it('applies an external widget callback', () => {
@@ -131,6 +142,14 @@ describe('useClipReorder — drag interaction', () => {
     expect(api.cloneX.value).toBe(300 - 20)
     expect(api.cloneY.value).toBe(50 - 20)
     expect(api.dragTargetIdx.value).toBe(2)
+  })
+
+  it('onTileMove reorders visible clips and keeps unresolved keys after them', () => {
+    const { api, stripEl } = setup('["video9","video0","video1"]', [clip(0), clip(1)])
+    stripEl.value = makeStrip([128, 128])
+    api.onTileDown(pointerEvt(30), 0)
+    api.onTileMove(pointerEvt(200))
+    expect(api.order.value).toEqual(['video1', 'video0', 'video9'])
   })
 
   it('onTileMove keeps order when hovering the current slot', () => {

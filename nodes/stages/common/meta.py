@@ -38,6 +38,7 @@ STAGE_META: dict[str, dict] = {
     'ColorGradeStage':              {'kind': 'image',       'variant': 'transform'},
     'CompareStage':                 {'kind': 'image',       'variant': 'transform'},
     'GridSplitStage':               {'kind': 'image-batch', 'variant': 'transform'},
+    'ImageConcatStage':             {'kind': 'image',       'variant': 'transform'},
     'DirectorTimelineStage':        {'kind': 'timeline',    'variant': 'transform'},
     'TimelineVideoStage':           {'kind': 'video',        'workflow_kind': 'timeline'},
     'ImageVariationsStage':         {'kind': 'image-batch',  'workflow_kind': 'multiview',

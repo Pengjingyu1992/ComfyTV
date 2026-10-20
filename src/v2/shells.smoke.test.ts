@@ -76,6 +76,7 @@ const SHELL_META: Record<string, Meta> = {
   'ComfyTV.ColorGradeStage': { kind: 'image', variant: 'transform' },
   'ComfyTV.CompareStage': { kind: 'image', variant: 'transform' },
   'ComfyTV.GridSplitStage': { kind: 'image-batch', variant: 'transform' },
+  'ComfyTV.ImageConcatStage': { kind: 'image', variant: 'transform' },
   'ComfyTV.VideoColorStage': { kind: 'video' },
   'ComfyTV.VideoCurvesStage': { kind: 'video' },
   'ComfyTV.VideoLUTStage': { kind: 'video' },
