@@ -1,0 +1,25 @@
+{
+  "label": "TRELLIS.2",
+  "order": 11,
+  "description": "TRELLIS.2 image-to-3D: one upstream image (background auto-removed via BiRefNet) to a vertex-colored mesh GLB. Graph from ComfyUI's official 3d_pixal3d_trellis2_image_to_model template with the TRELLIS.2 switch on; remesh 768 + decimate to 200k faces + vertex paint. Requires trellis_2_int8_convrot + both TRELLIS.2 VAEs + dino_v3_L_naf + birefnet — see workflows/model/README.md. Optional custom param: seed.",
+  "result": {
+    "type": "ui_save_url",
+    "node": "30"
+  },
+  "inputs": {
+    "1": {
+      "image": {
+        "from": "upstream_image:annotated[0]",
+        "required": true,
+        "error": "TRELLIS.2 needs an upstream image — wire one into this stage's images slot."
+      }
+    },
+    "12": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    }
+  }
+}

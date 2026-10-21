@@ -1,0 +1,25 @@
+{
+  "label": "Pixal3D",
+  "order": 12,
+  "description": "Pixal3D image-to-3D: same pipeline as TRELLIS.2 with the Pixal3D model, which is also conditioned on the photo's horizontal field of view (estimated with MoGe-2). Graph from ComfyUI's official 3d_pixal3d_trellis2_image_to_model template with the Pixal3D switch on. Requires pixal3d_int8_convrot + moge_2_vitl_normal + the TRELLIS.2 VAEs + dino_v3_L_naf + birefnet. Optional custom param: seed.",
+  "result": {
+    "type": "ui_save_url",
+    "node": "30"
+  },
+  "inputs": {
+    "1": {
+      "image": {
+        "from": "upstream_image:annotated[0]",
+        "required": true,
+        "error": "Pixal3D needs an upstream image — wire one into this stage's images slot."
+      }
+    },
+    "12": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    }
+  }
+}

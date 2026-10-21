@@ -6,7 +6,7 @@
 
 ## Stage 输入
 
-- **提示词** — 可选；内置的三个图生 3D 工作流都不消费它，但文生 3D 类工作流可以绑定。
+- **提示词** — 可选；内置的图生 3D 工作流都不消费它，但文生 3D 类工作流可以绑定。
 - **上游图片** — 内置工作流都把 `images.image0` 提升为 3D。
 - **上游文本 / 模型**（可选）— 供需要参考输入的工作流使用。
 - **自定义参数** — 每个 preset 暴露的质量旋钮（见下）；未暴露的参数一律保持官方模板默认值。
@@ -20,11 +20,18 @@
 
 ## 当前内置
 
-三个都改编自 ComfyUI 官方内置模板，做了拍平处理（去掉子图 / 预览分支），官方参数默认值全部保留。生成式工作流的公共自定义参数：`seed`（未设置时每次 Run 随机）。
+都改编自 ComfyUI 官方内置模板，做了拍平处理（去掉子图 / 预览分支），官方参数默认值全部保留。生成式工作流的公共自定义参数：`seed`（未设置时每次 Run 随机）。
 
 - **Hunyuan3D 2.1**（`hunyuan3d-21.json` + `_preset.json`）— 图 → 无贴图**网格** GLB。官方 `3d_hunyuan3d-v2.1` 模板默认值：30 步、cfg 5、euler/normal、latent 分辨率 4096、解码 num_chunks 8000 / octree_resolution 256、surface-net 阈值 0.6。自定义参数：`seed`、`steps`、`guidance`。模型：`checkpoints/hunyuan_3d_v2.1.safetensors`。
 - **TripoSplat Gaussian**（`triposplat-gaussian.json` + `_preset.json`）— 图 → **3D 高斯泼溅**（`.spz`）。预处理前固定走 BiRefNet 自动去背景（erode 1、size 1024——模型的训练分辨率）。采样默认：20 步、cfg 3、dpmpp_2m/simple；解码产出 262144 个高斯（八叉树密度——调高只是过采样，不会有新细节）。自定义参数：`seed`、`steps`、`guidance`、`num_gaussians`。模型：`diffusion_models/triposplat_fp16.safetensors`、`clip_vision/dino_v3_vit_h.safetensors`、`vae/triposplat_vae_decoder_fp16.safetensors`、`vae/flux2-vae.safetensors`、`background_removal/birefnet.safetensors`。
 - **MoGe-2 Depth Mesh**（`moge2-mesh.json` + `_preset.json`）— 图 → 可见表面的带贴图**点图网格** GLB（单目几何估计的场景浮雕，不是封闭物体）。确定性算法，无 seed。默认值：resolution_level 9、fov 自动恢复、decimation 1、断裂阈值 0.04、贴图开。自定义参数：`resolution_level`（0 最快 … 9 最细）。模型：`geometry_estimation/moge_2_vitl_normal_fp16.safetensors`。
+- **TRELLIS.2**（`trellis2.json` + `_preset.json`）— 图 → 顶点着色的**网格** GLB。来自官方 `3d_pixal3d_trellis2_image_to_model` 模板，开关切到 TRELLIS.2；BiRefNet 自动抠图，`Trellis2Conditioning`。模型：`diffusion_models/trellis_2_int8_convrot.safetensors`。测试通过（5090 上约 97 秒）。
+- **Pixal3D**（`pixal3d.json` + `_preset.json`）— 同一个模板，开关切到 Pixal3D：先用 MoGe-2 估出照片的水平视角，交给 `Pixal3DConditioning`。模型：`diffusion_models/pixal3d_int8_convrot.safetensors`、`geometry_estimation/moge_2_vitl_normal_fp16.safetensors`。测试通过（约 82 秒）。
+- **Pixal3D Multi-View**（`pixal3d-multiview.json` + `_preset.json`）— 图 1–4 依次是同一个物体的**前、左、后、右**视图；每张都按单图流程抠图、取景，再交给 `Pixal3DMultiViewConditioning`（fov 20，官方给多视角生成器和渲染图的默认值）。没接的视角槽位会自动剪掉，接 1–4 张都能跑，接上的第一张就是正面。来自官方 `3d_pixal3d_multi_views` 模板。模型：`diffusion_models/pixal3d_multiview_int8_convrot.safetensors`。测试通过（2 个视角，约 95 秒）。
+
+这三个共用 TRELLIS.2 的流程（形状 VAE + 纹理 VAE + DINOv3 条件），之后 remesh 768 → 精简到 20 万面 → 顶点上色 → GLB；只有主模型和条件节点不同。自定义参数：`seed`。
+
+三者共用的文件：`vae/trellis_2_shape_vae_bf16.safetensors`、`vae/trellis_2_texture_vae_bf16.safetensors`、`clip_vision/dino_v3_L_naf_fp32.safetensors`、`background_removal/birefnet.safetensors`，见 <https://huggingface.co/Comfy-Org/Pixal3D> 和 <https://huggingface.co/Comfy-Org/TRELLIS.2>。
 
 ## 引用的模型
 

@@ -1,0 +1,69 @@
+{
+  "label": "Pixal3D Multi-View",
+  "order": 13,
+  "description": "Pixal3D multi-view to 3D: images 1-4 are the front, left, back and right views of the same object (backgrounds auto-removed); unused slots are pruned, so 1-4 views all run and the first one sets the front. Graph from ComfyUI's official 3d_pixal3d_multi_views template (fov 20, for multi-view generators and rig renders). Requires pixal3d_multiview_int8_convrot + the TRELLIS.2 VAEs + dino_v3_L_naf + birefnet. Optional custom param: seed.",
+  "result": {
+    "type": "ui_save_url",
+    "node": "30"
+  },
+  "inputs": {
+    "40": {
+      "image": {
+        "from": "upstream_image:annotated[0]",
+        "required": true,
+        "error": "Pixal3D Multi-View needs at least one upstream image — images 1-4 are the front, left, back and right views."
+      }
+    },
+    "12": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    },
+    "43": {
+      "image": {
+        "from": "upstream_image:annotated[1]"
+      }
+    },
+    "46": {
+      "image": {
+        "from": "upstream_image:annotated[2]"
+      }
+    },
+    "49": {
+      "image": {
+        "from": "upstream_image:annotated[3]"
+      }
+    }
+  },
+  "prune_when_missing": [
+    {
+      "when": "upstream_image:value[1]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "left"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[2]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "back"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[3]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "right"
+        }
+      ]
+    }
+  ]
+}

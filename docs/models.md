@@ -90,6 +90,9 @@ Download: <https://huggingface.co/Comfy-Org/MiniMax-Music-3>
 | Workflow | Files | Folder |
 |---|---|---|
 | **Hunyuan3D 2.1** (image → mesh) | `hunyuan_3d_v2.1.safetensors` | `checkpoints/` |
+| **TRELLIS.2** (image → mesh) | `trellis_2_int8_convrot.safetensors`, `trellis_2_shape_vae_bf16.safetensors`, `trellis_2_texture_vae_bf16.safetensors`, `dino_v3_L_naf_fp32.safetensors`, `birefnet.safetensors` | `diffusion_models/`, `vae/`, `vae/`, `clip_vision/`, `background_removal/` |
+| **Pixal3D** (image → mesh) | `pixal3d_int8_convrot.safetensors`, `moge_2_vitl_normal_fp16.safetensors`, `trellis_2_shape_vae_bf16.safetensors`, `trellis_2_texture_vae_bf16.safetensors`, `dino_v3_L_naf_fp32.safetensors`, `birefnet.safetensors` | `diffusion_models/`, `geometry_estimation/`, `vae/`, `vae/`, `clip_vision/`, `background_removal/` |
+| **Pixal3D Multi-View** (1–4 views → mesh) | `pixal3d_multiview_int8_convrot.safetensors`, `trellis_2_shape_vae_bf16.safetensors`, `trellis_2_texture_vae_bf16.safetensors`, `dino_v3_L_naf_fp32.safetensors`, `birefnet.safetensors` | `diffusion_models/`, `vae/`, `vae/`, `clip_vision/`, `background_removal/` |
 | **MoGe-2 Mesh** (image → geometry) | `moge_2_vitl_normal_fp16.safetensors` | `geometry_estimation/` |
 | **TripoSplat Gaussian** (image → splat) | `triposplat_fp16.safetensors`, `dino_v3_vit_h.safetensors`, `flux2-vae.safetensors`, `triposplat_vae_decoder_fp16.safetensors`, `birefnet.safetensors` | `diffusion_models/`, `clip_vision/`, `vae/`, `vae/`, `background_removal/` |
 
