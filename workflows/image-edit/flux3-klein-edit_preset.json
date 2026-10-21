@@ -1,0 +1,163 @@
+{
+  "label": "FLUX.3 Klein Edit",
+  "order": 7,
+  "description": "The official FLUX.3 Image Klein distilled edit graph with up to 10 images: every image goes to Set Reference Multi Latent at ~1 MP, the output takes the size of the first. Refer to them with @image_1..@image_10 (type @ in the prompt); the preset sets mention_style: flux3_tags, so they reach the model as <ref_image_0>..<ref_image_9>. Write a full caption of the result with the edit folded in. 16 steps, euler, cfg 1.",
+  "result": {
+    "type": "ui_save_url",
+    "node": "9"
+  },
+  "meta": {
+    "mention_style": "flux3_tags"
+  },
+  "inputs": {
+    "11": {
+      "image": {
+        "from": "upstream_image:annotated[0]",
+        "required": true,
+        "error": "FLUX.3 Klein Edit needs a reference image — add one with ＋ on the card, or wire one in; the output takes the size of image 1."
+      }
+    },
+    "4": {
+      "text": {
+        "from": "main_prompt",
+        "required": true,
+        "error": "Describe the result — e.g. 'in @image_1, replace the background with a light-gray studio backdrop, keep the subject unchanged'."
+      }
+    },
+    "7": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    },
+    "12": {
+      "image": {
+        "from": "upstream_image:annotated[1]"
+      }
+    },
+    "13": {
+      "image": {
+        "from": "upstream_image:annotated[2]"
+      }
+    },
+    "14": {
+      "image": {
+        "from": "upstream_image:annotated[3]"
+      }
+    },
+    "15": {
+      "image": {
+        "from": "upstream_image:annotated[4]"
+      }
+    },
+    "16": {
+      "image": {
+        "from": "upstream_image:annotated[5]"
+      }
+    },
+    "17": {
+      "image": {
+        "from": "upstream_image:annotated[6]"
+      }
+    },
+    "18": {
+      "image": {
+        "from": "upstream_image:annotated[7]"
+      }
+    },
+    "19": {
+      "image": {
+        "from": "upstream_image:annotated[8]"
+      }
+    },
+    "20": {
+      "image": {
+        "from": "upstream_image:annotated[9]"
+      }
+    }
+  },
+  "prune_when_missing": [
+    {
+      "when": "upstream_image:value[1]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image1"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[2]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image2"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[3]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image3"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[4]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image4"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[5]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image5"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[6]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image6"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[7]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image7"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[8]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image8"
+        }
+      ]
+    },
+    {
+      "when": "upstream_image:value[9]",
+      "drop_upstream_of": [
+        {
+          "node": "6",
+          "input": "images.image9"
+        }
+      ]
+    }
+  ]
+}

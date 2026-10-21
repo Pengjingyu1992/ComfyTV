@@ -978,6 +978,7 @@
       "natural": "自然文本（图1）",
       "minimaxTags": "<Picture n> 标签（MiniMax H3）",
       "qwenTags": "<image n> 标签（Qwen Image 2.1）",
+      "flux3Tags": "<ref_image n> 标签（FLUX.3，从 0 开始）",
       "hint": "提示词里的图片提及在本工作流的模型下如何展开。"
     },
     "section": {

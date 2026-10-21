@@ -1,0 +1,45 @@
+{
+  "label": "MOSS-Image T2I",
+  "order": 17,
+  "description": "The official MOSS-Image text-to-image graph (SFT int8 DiT + Qwen3.5-9B w4a8 encoder + small Flux2 VAE, 25 steps, er_sde, cfg 2.5) with the template's fixed negative prompt. Write a full scene caption: medium, subject, setting, composition, lighting and any text in quotes.",
+  "result": {
+    "type": "ui_save_batch",
+    "node": "9"
+  },
+  "sizing": {
+    "type": "image",
+    "base": 1024,
+    "snap": 16
+  },
+  "inputs": {
+    "4": {
+      "text": {
+        "from": "main_prompt",
+        "required": true,
+        "error": "Describe the image to generate."
+      }
+    },
+    "6": {
+      "width": {
+        "from": "computed:width",
+        "cast": "int"
+      },
+      "height": {
+        "from": "computed:height",
+        "cast": "int"
+      },
+      "batch_size": {
+        "from": "option:batch_size",
+        "default": "1",
+        "cast": "int"
+      }
+    },
+    "7": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    }
+  }
+}

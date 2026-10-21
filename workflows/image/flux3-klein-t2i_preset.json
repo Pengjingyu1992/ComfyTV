@@ -1,0 +1,45 @@
+{
+  "label": "FLUX.3 Klein T2I",
+  "order": 16,
+  "description": "The official FLUX.3 Image Klein distilled text-to-image graph (int8 DiT + Qwen3-VL-4B int8 encoder, 16 steps, euler, cfg 1). cfg is 1, so there is no negative prompt.",
+  "result": {
+    "type": "ui_save_batch",
+    "node": "9"
+  },
+  "sizing": {
+    "type": "image",
+    "base": 1024,
+    "snap": 16
+  },
+  "inputs": {
+    "4": {
+      "text": {
+        "from": "main_prompt",
+        "required": true,
+        "error": "Describe the image to generate."
+      }
+    },
+    "6": {
+      "width": {
+        "from": "computed:width",
+        "cast": "int"
+      },
+      "height": {
+        "from": "computed:height",
+        "cast": "int"
+      },
+      "batch_size": {
+        "from": "option:batch_size",
+        "default": "1",
+        "cast": "int"
+      }
+    },
+    "7": {
+      "seed": {
+        "from": "option:seed",
+        "default": "random_int31",
+        "cast": "int"
+      }
+    }
+  }
+}

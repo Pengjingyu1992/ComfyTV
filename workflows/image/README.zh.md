@@ -30,6 +30,8 @@
 - **Qwen Image 2.1 T2I**(`qwen-image-2.1-t2i.json` + `_preset.json`) , 官方 Qwen Image 2.1 文生图(int8 DiT + Qwen3-VL-8B int8 编码器,25 步,cfg 1)。原生 2K:分辨率选 **2K** 直出 2048px。提示词接 `TextEncodeQwenImage21`,它一个节点同时出 positive/negative;stage 的负向提示词只有把 cfg 调高才起作用。测试通过(5090 上 1K 约 25 秒一张)。
 - **Qwen Image 2.1 Transparent (RGBA)**(`qwen-image-2.1-rgba.json` + `_preset.json`) , 同一张图;preset 用官方模板的 RGBA 句式包住你的提示词,2.1 的 VAE 直接解出 alpha 通道,`SaveImage` 存的就是主体在透明背景上的 RGBA PNG,不经过任何抠图模型。只描述主体即可。测试通过(1024² 怀表,56% 像素全透明)。
 - **Qwen Image 2.1 Multi-Ref Edit**(`qwen-image-2.1-multi-ref-edit.json` + `_preset.json`) , 最多 4 张图的指令编辑:images[0] 是编辑目标(输出尺寸跟它),images[1..3] 是参考图。提示词里直接用 stage 的 `@image_1`..`@image_4` 提及(打 `@` 选);preset 设了 `mention_style: qwen_tags`,发给模型时会展开成 `<image1>`..`<image4>`("把 `@image_2` 里的杯子放到 `@image_1` 人物手里")。没接的槽位会自动剪掉,接 1~4 张都能跑。分辨率 / 比例 / 批量不生效。单图编辑用图像编辑 stage 的 **Qwen Image 2.1 Edit**。测试通过。
+- **FLUX.3 Klein T2I**(`flux3-klein-t2i.json` + `_preset.json`) , 官方 FLUX.3 Image Klein 蒸馏版文生图:int8 DiT + Qwen3-VL-4B int8 编码器(`CLIPLoader` 类型 `flux3`)+ Flux2 VAE,`KSampler` 16 步,euler / simple,cfg 1,所以没有负面提示词。要带参考图编辑用图像编辑 stage 的 **FLUX.3 Klein Edit**。测试通过(5090 上模型已加载时 1024×1808 约 4 秒)。
+- **MOSS-Image T2I**(`moss-image-t2i.json` + `_preset.json`) , 官方 MOSS-Image 文生图:SFT int8 DiT + Qwen3.5-9B w4a8 编码器(`CLIPLoader` 类型 `moss_image`)+ 小号 Flux2 VAE,`KSampler` 25 步,er_sde / simple,cfg 2.5,负面提示词沿用模板里的固定值。它是用整段画面描述训练的,提示词写成完整描述,别只写几个关键词。测试通过(5090 上 1808×1024 约 27 秒)。
 
 ## 需要的模型
 
@@ -38,4 +40,6 @@
 - Flux2 Klein Relight:`flux-2-klein-9b-nvfp4.safetensors`(diffusion_models)、`Sun_direction_LoRA_Flux_2_Klein_9b_v1.safetensors`(loras)、`qwen_3_8b_fp8mixed.safetensors`(clip)、`flux2-vae.safetensors`(vae)
 - Qwen Product Shot:`qwen_image_2512_fp8_e4m3fn.safetensors`(diffusion_models)、`Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors`(controlnet)、`Qwen-Image-Lightning-4steps-V1.0.safetensors`(loras)、`qwen_2.5_vl_7b_fp8_scaled.safetensors`(clip)、`qwen_image_vae.safetensors`(vae)
 - Qwen Image 2.1(T2I / Transparent / Multi-Ref Edit 共用,约 17 GB):`qwen_image_2.1_int8_convrot.safetensors`(diffusion_models)、`qwen3vl_8b_int8_convrot.safetensors`(text_encoders)、`qwen_image_2.1_vae_bf16.safetensors`(vae),都在 <https://huggingface.co/Comfy-Org/Qwen-Image-2.1>。需要带 `TextEncodeQwenImage21` 节点的 ComfyUI(v0.37+)。
+- FLUX.3 Klein T2I:`flux3-image-klein-int8-convrot.safetensors`(diffusion_models)、`qwen3vl_4b_int8_convrot.safetensors`(text_encoders)、`flux2-vae.safetensors`(vae), <https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy>(需先在页面上同意协议)
+- MOSS-Image T2I:`moss_image_sft_int8_convrot.safetensors`(diffusion_models)、`qwen3.5_9b_w4a8_gptq.safetensors`(text_encoders)、`flux2-vae_small.safetensors`(vae), <https://huggingface.co/Comfy-Org/MOSS-Image>
 

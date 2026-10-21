@@ -978,6 +978,7 @@
       "natural": "Natural text (image 1)",
       "minimaxTags": "<Picture n> tags (MiniMax H3)",
       "qwenTags": "<image n> tags (Qwen Image 2.1)",
+      "flux3Tags": "<ref_image n> tags (FLUX.3, zero-based)",
       "hint": "How image mentions in the stage prompt are rendered for this workflow's model."
     },
     "section": {
