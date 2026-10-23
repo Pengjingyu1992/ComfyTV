@@ -28,6 +28,16 @@ async def get_lut(request: web.Request) -> web.Response:
     return web.FileResponse(path)
 
 
+@routes.get('/comfytv/text_font')
+async def get_text_font(request: web.Request) -> web.Response:
+    from ..runners.text_overlay import _font_path
+
+    path = _font_path(request.query.get('name', ''))
+    if path is None:
+        return web.json_response({'error': 'no font available'}, status=404)
+    return web.FileResponse(path)
+
+
 @routes.get('/comfytv/luma_map')
 async def get_luma_map(request: web.Request) -> web.Response:
     import io as _io

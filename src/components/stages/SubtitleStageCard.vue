@@ -1,7 +1,11 @@
 <template>
   <FxCardShell :node="node">
     <template #player>
-      <VideoPlayerLite :source-video-url="sourceVideoUrl" />
+      <VideoPlayerLite ref="playerRef" :source-video-url="sourceVideoUrl">
+        <template #overlay>
+          <canvas ref="previewCanvas" class="ctv:absolute ctv:inset-0 ctv:size-full ctv:object-contain ctv:pointer-events-none" />
+        </template>
+      </VideoPlayerLite>
     </template>
 
     <div
@@ -104,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { LGraphNode } from '@/lib/comfyApp'
 import type { StageState } from '@/stores/stageStore'
 import StageCard from '@/components/stages/StageCard.vue'
@@ -115,6 +119,8 @@ import FxChips from '@/components/widgets/fx/FxChips.vue'
 import { pickSourceImageUrl } from '@/composables/stages/stageInputs'
 import { useFontLibrary } from '@/composables/stages/useFontLibrary'
 import { useSubtitleCues } from '@/composables/stages/useSubtitleCues'
+import { cueTextAt } from '@/composables/stages/textOverlayLayout'
+import { useTextOverlayPreview } from '@/composables/stages/useTextOverlayPreview'
 import { useNumWidget, useStrWidget } from '@/composables/widgets/useWidgetModel'
 
 const props = defineProps<{
@@ -142,4 +148,16 @@ const stroke = useNumWidget(props.node, 'stroke', 2)
 const anchor = useStrWidget(props.node, 'anchor', 'bottom')
 
 const { cues, addCue, removeCue, onCueNum, onCueText } = useSubtitleCues(subs)
+
+const playerRef = ref<InstanceType<typeof VideoPlayerLite> | null>(null)
+const previewCanvas = ref<HTMLCanvasElement | null>(null)
+useTextOverlayPreview({
+  canvas: previewCanvas,
+  video: computed(() => playerRef.value?.videoEl ?? null),
+  style: () => ({
+    font: font.value, size: size.value, color: color.value,
+    stroke: stroke.value, strokeColor: '#000000', anchor: anchor.value,
+  }),
+  textAt: (t) => cueTextAt(cues.value, t),
+})
 </script>

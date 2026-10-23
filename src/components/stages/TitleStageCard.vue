@@ -1,7 +1,11 @@
 <template>
   <FxCardShell :node="node">
     <template #player>
-      <VideoPlayerLite ref="playerRef" :source-video-url="sourceVideoUrl" />
+      <VideoPlayerLite ref="playerRef" :source-video-url="sourceVideoUrl">
+        <template #overlay>
+          <canvas ref="previewCanvas" class="ctv:absolute ctv:inset-0 ctv:size-full ctv:object-contain ctv:pointer-events-none" />
+        </template>
+      </VideoPlayerLite>
     </template>
 
     <div
@@ -79,7 +83,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { fetchMediaInfo } from '@/api'
 import type { LGraphNode } from '@/lib/comfyApp'
 import type { StageState } from '@/stores/stageStore'
 import StageCard from '@/components/stages/StageCard.vue'
@@ -89,6 +94,8 @@ import FxSlider from '@/components/widgets/fx/FxSlider.vue'
 import FxChips from '@/components/widgets/fx/FxChips.vue'
 import { pickSourceImageUrl } from '@/composables/stages/stageInputs'
 import { useFontLibrary } from '@/composables/stages/useFontLibrary'
+import { hasTimeTokens, titleTextAt } from '@/composables/stages/textOverlayLayout'
+import { useTextOverlayPreview } from '@/composables/stages/useTextOverlayPreview'
 import { useNumWidget, useStrWidget } from '@/composables/widgets/useWidgetModel'
 
 const props = defineProps<{
@@ -135,6 +142,27 @@ const tEnd = useNumWidget(props.node, 't_end', -1)
 const fadeS = useNumWidget(props.node, 'fade_s', 0)
 const typewriter = useStrWidget(props.node, 'typewriter', 'off')
 const typeStep = useNumWidget(props.node, 'type_step', 0.1)
+
+const fps = ref(24)
+watch([sourceVideoUrl, () => hasTimeTokens(text.value)], async ([url, tokens]) => {
+  if (!url || !tokens) return
+  const info = await fetchMediaInfo(url).catch(() => null)
+  if (url === sourceVideoUrl.value) fps.value = info?.fps || 24
+}, { immediate: true })
+
+const previewCanvas = ref<HTMLCanvasElement | null>(null)
+useTextOverlayPreview({
+  canvas: previewCanvas,
+  video: computed(() => playerRef.value?.videoEl ?? null),
+  style: () => ({
+    font: font.value, size: size.value, color: color.value,
+    stroke: stroke.value, strokeColor: strokeColor.value, anchor: anchor.value,
+  }),
+  textAt: (t) => titleTextAt({
+    text: text.value, tStart: tStart.value, tEnd: tEnd.value, fadeS: fadeS.value,
+    typewriter: typewriter.value, typeStep: typeStep.value,
+  }, t, fps.value),
+})
 
 const TYPEWRITERS = [
   { value: 'off', label: 'Off' },

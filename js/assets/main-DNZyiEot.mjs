@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-TsdaNJK9.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-C1NXYnS_.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86648,7 +86648,7 @@ const _sfc_main$4t = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-CJ0e48_U.mjs"),
+      loader: () => import("./AgentPanelRoot-DFCDRaRo.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149348,7 +149348,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-DDMhkxaD.mjs");
+    const { STLLoader } = await import("./STLLoader-BlirjqBv.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149356,7 +149356,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-nQ3Y4zqI.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-DdeIh5b9.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -216501,6 +216501,238 @@ const _sfc_main$1D = /* @__PURE__ */ defineComponent({
     };
   }
 });
+const TOKEN_RE = /#(timecode|frame|shorttimecode)#/g;
+function hasTimeTokens(text) {
+  return text.search(TOKEN_RE) >= 0;
+}
+function placeBlock(anchor2, fw, fh, tw, th, margin = 0.05) {
+  const mx = Math.floor(fw * margin);
+  const my = Math.floor(fh * margin);
+  const ax = ["top", "center", "bottom"].includes(anchor2) ? "center" : anchor2.includes("left") ? "left" : "right";
+  const ay = anchor2.includes("top") ? "top" : anchor2.includes("bottom") ? "bottom" : "middle";
+  const x = ax === "left" ? mx : ax === "right" ? fw - tw - mx : Math.floor((fw - tw) / 2);
+  const y = ay === "top" ? my : ay === "bottom" ? fh - th - my : Math.floor((fh - th) / 2);
+  return [x, y];
+}
+function resolveTokens(text, t2, fps2) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return text.replace(TOKEN_RE, (_, name) => {
+    const total2 = Math.round(t2 * fps2);
+    if (name === "frame") return String(total2);
+    const hh = Math.floor(t2 / 3600);
+    const mm = Math.floor(t2 % 3600 / 60);
+    const ss = Math.floor(t2 % 60);
+    const ff = Math.round((t2 - Math.floor(t2)) * fps2) % Math.max(1, Math.round(fps2));
+    if (name === "shorttimecode") return `${pad(mm)}:${pad(ss)}`;
+    return `${pad(hh)}:${pad(mm)}:${pad(ss)}:${pad(ff)}`;
+  });
+}
+function typewriterSlice(text, t2, tStart, mode, stepS) {
+  if (!["char", "word", "line"].includes(mode) || stepS <= 0) return text;
+  const steps = Math.max(0, Math.floor((t2 - tStart) / stepS));
+  if (mode === "char") return Array.from(text).slice(0, steps).join("");
+  if (mode === "word") {
+    const parts = text.split(/(\s+)/);
+    const shown = Math.min(steps, parts.filter((p2) => p2.trim()).length);
+    let count2 = 0;
+    const out = [];
+    for (const p2 of parts) {
+      if (p2.trim() && ++count2 > shown) break;
+      out.push(p2);
+    }
+    return out.join("");
+  }
+  return text.split("\n").slice(0, steps).join("\n");
+}
+function titleTextAt(title, t2, fps2) {
+  if (!title.text.trim()) return null;
+  const end2 = title.tEnd > 0 ? title.tEnd : 1e12;
+  if (t2 < title.tStart || t2 > end2) return null;
+  let opacity2 = 1;
+  if (title.fadeS > 0) {
+    opacity2 = Math.min(opacity2, (t2 - title.tStart) / title.fadeS);
+    if (end2 < 1e11) opacity2 = Math.min(opacity2, (end2 - t2) / title.fadeS);
+    opacity2 = Math.max(0, Math.min(1, opacity2));
+  }
+  const text = typewriterSlice(
+    resolveTokens(title.text, t2, fps2),
+    t2,
+    title.tStart,
+    title.typewriter,
+    title.typeStep
+  );
+  return text.trim() ? { text, opacity: opacity2 } : null;
+}
+function sfntTables(buf) {
+  const dv = new DataView(buf);
+  const tag = (o) => String.fromCharCode(
+    dv.getUint8(o),
+    dv.getUint8(o + 1),
+    dv.getUint8(o + 2),
+    dv.getUint8(o + 3)
+  );
+  const base2 = tag(0) === "ttcf" ? dv.getUint32(12) : 0;
+  const tables = /* @__PURE__ */ new Map();
+  for (let i = 0; i < dv.getUint16(base2 + 4); i++) {
+    const rec = base2 + 12 + i * 16;
+    tables.set(tag(rec), dv.getUint32(rec + 8));
+  }
+  return { dv, tag, tables };
+}
+function opszDefault(buf) {
+  const { dv, tag, tables } = sfntTables(buf);
+  const fvar = tables.get("fvar");
+  if (fvar == null) return null;
+  const axes2 = fvar + dv.getUint16(fvar + 4);
+  const size2 = dv.getUint16(fvar + 10);
+  for (let a2 = 0; a2 < dv.getUint16(fvar + 8); a2++) {
+    if (tag(axes2 + a2 * size2) === "opsz") return dv.getInt32(axes2 + a2 * size2 + 8) / 65536;
+  }
+  return null;
+}
+function cmapCoverage(buf) {
+  const { dv, tables } = sfntTables(buf);
+  const cmap = tables.get("cmap");
+  const out = /* @__PURE__ */ new Set();
+  if (cmap == null) return out;
+  let sub = -1;
+  for (let i = 0; i < dv.getUint16(cmap + 2); i++) {
+    const rec = cmap + 4 + i * 8;
+    const at2 = cmap + dv.getUint32(rec + 4);
+    const format2 = dv.getUint16(at2);
+    if (format2 === 4 && sub < 0 || format2 === 12) sub = at2;
+    if (format2 === 12) break;
+  }
+  if (sub < 0) return out;
+  if (dv.getUint16(sub) === 12) {
+    for (let g2 = 0; g2 < dv.getUint32(sub + 12); g2++) {
+      const rec = sub + 16 + g2 * 12;
+      for (let c2 = dv.getUint32(rec); c2 <= dv.getUint32(rec + 4); c2++) out.add(c2);
+    }
+    return out;
+  }
+  const segs = dv.getUint16(sub + 6) / 2;
+  const ends = sub + 14;
+  const starts = ends + segs * 2 + 2;
+  const deltas = starts + segs * 2;
+  const offsets = deltas + segs * 2;
+  for (let s = 0; s < segs; s++) {
+    const end2 = dv.getUint16(ends + s * 2);
+    const delta = dv.getInt16(deltas + s * 2);
+    const rangeOff = dv.getUint16(offsets + s * 2);
+    for (let c2 = dv.getUint16(starts + s * 2); c2 <= end2 && c2 !== 65535; c2++) {
+      const glyph = rangeOff === 0 ? c2 + delta & 65535 : dv.getUint16(offsets + s * 2 + rangeOff + (c2 - dv.getUint16(starts + s * 2)) * 2);
+      if (glyph !== 0) out.add(c2);
+    }
+  }
+  return out;
+}
+function cueTextAt(cues, t2) {
+  const cue = cues.find((c2) => c2.start <= t2 && t2 <= c2.end && c2.text);
+  return cue ? { text: cue.text.replace(/<[^>]+>/g, ""), opacity: 1 } : null;
+}
+const FALLBACK_FONT = "NotoSansSC-Regular";
+const LINE_GAP = 4;
+const MAX_SIDE = 1920;
+const loadedFonts = /* @__PURE__ */ new Map();
+function loadFont(name) {
+  let font2 = loadedFonts.get(name);
+  if (!font2) {
+    const family = `ctv-text-${loadedFonts.size}`;
+    font2 = fetch(`/comfytv/text_font?name=${encodeURIComponent(name)}`).then((r2) => r2.arrayBuffer()).then(async (buf) => {
+      document.fonts.add(await new FontFace(family, buf).load());
+      return { family, opsz: opszDefault(buf), covers: cmapCoverage(buf) };
+    }).catch(() => ({ family: "sans-serif", opsz: null, covers: /* @__PURE__ */ new Set() }));
+    loadedFonts.set(name, font2);
+  }
+  return font2;
+}
+function useTextOverlayPreview(opts) {
+  const fonts = /* @__PURE__ */ ref(null);
+  const time2 = /* @__PURE__ */ ref(0);
+  watch(() => opts.style().font, async (font2) => {
+    fonts.value = null;
+    const loaded = await Promise.all([loadFont(font2), loadFont(FALLBACK_FONT)]);
+    if (font2 === opts.style().font) fonts.value = loaded;
+  }, { immediate: true });
+  function draw() {
+    const canvas = opts.canvas.value;
+    const video = opts.video.value;
+    if (!canvas || !video) return;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const k2 = Math.min(1, MAX_SIDE / Math.max(vw, vh, 1));
+    canvas.width = Math.round(vw * k2);
+    canvas.height = Math.round(vh * k2);
+    const ctx = canvas.getContext("2d");
+    const item = opts.textAt(time2.value);
+    if (!ctx || !vw || !vh || !item || !fonts.value) return;
+    const [main2, fallback] = fonts.value;
+    const st2 = opts.style();
+    const stroke = Math.max(0, Math.round(st2.stroke));
+    const measure = (family, text) => {
+      ctx.font = `${st2.size}px ${family}`;
+      return ctx.measureText(text);
+    };
+    const ascent = (font2) => Math.ceil(measure(font2.family, "A").fontBoundingBoxAscent);
+    const descent = (font2) => Math.ceil(measure(font2.family, "A").fontBoundingBoxDescent);
+    const missing = (s) => main2 !== fallback && Array.from(s).some((ch) => ch.trim() && !main2.covers.has(ch.codePointAt(0)));
+    const lines = item.text.split("\n");
+    const base2 = main2.opsz ?? st2.size;
+    const f2 = st2.size / base2;
+    const stack2 = `${base2}px ${main2.family}, ${fallback.family}`;
+    ctx.font = stack2;
+    const widths = lines.map((l) => ctx.measureText(l).width * f2);
+    const tw = Math.ceil(Math.max(...widths)) + 4 + 2 * stroke;
+    let th;
+    let baselines;
+    if (missing(item.text)) {
+      let y2 = 2 + stroke;
+      baselines = lines.map((l) => {
+        const used = missing(l) ? [main2, fallback] : [main2];
+        const asc = Math.max(...used.map(ascent));
+        const b = y2 + asc;
+        y2 += asc + Math.max(...used.map(descent)) + LINE_GAP;
+        return b;
+      });
+      th = y2 - LINE_GAP + 2 + stroke;
+    } else {
+      const asc = ascent(main2);
+      const spacing = asc + Math.ceil(measure(main2.family, "A").actualBoundingBoxDescent) + 2 * stroke + LINE_GAP;
+      const ink = lines.map((l) => measure(main2.family, l));
+      const top2 = Math.min(...ink.map((m, i) => i * spacing + asc - Math.ceil(m.actualBoundingBoxAscent))) - stroke;
+      const bottom2 = Math.max(...ink.map((m, i) => i * spacing + asc + Math.ceil(m.actualBoundingBoxDescent))) + stroke;
+      th = bottom2 - top2 + 4;
+      baselines = lines.map((_, i) => 2 - top2 + i * spacing + asc);
+    }
+    const [x, y] = placeBlock(st2.anchor, vw, vh, tw, th);
+    ctx.font = stack2;
+    ctx.globalAlpha = item.opacity;
+    ctx.textAlign = "center";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 2 * stroke / f2;
+    ctx.strokeStyle = st2.strokeColor;
+    ctx.fillStyle = st2.color;
+    lines.forEach((l, i) => {
+      ctx.setTransform(k2 * f2, 0, 0, k2 * f2, k2 * (x + tw / 2), k2 * (y + baselines[i]));
+      if (stroke > 0) ctx.strokeText(l, 0, 0);
+      ctx.fillText(l, 0, 0);
+    });
+  }
+  const syncTime = () => {
+    var _a2;
+    time2.value = ((_a2 = opts.video.value) == null ? void 0 : _a2.currentTime) ?? 0;
+  };
+  const playing = useRafFn(syncTime, { immediate: false });
+  useEventListener(opts.video, ["timeupdate", "seeked"], syncTime);
+  useEventListener(opts.video, "loadedmetadata", () => {
+    syncTime();
+    draw();
+  });
+  useEventListener(opts.video, "play", playing.resume);
+  useEventListener(opts.video, ["pause", "ended"], playing.pause);
+  watchEffect(draw, { flush: "post" });
+}
 const _hoisted_1$1C = ["placeholder"];
 const _hoisted_2$1y = { class: "ctv:text-2xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground" };
 const _hoisted_3$1x = { class: "ctv:flex ctv:items-center ctv:gap-3 ctv:text-[11px]" };
@@ -216572,6 +216804,36 @@ const _sfc_main$1C = /* @__PURE__ */ defineComponent({
     const fadeS = useNumWidget(props.node, "fade_s", 0);
     const typewriter = useStrWidget(props.node, "typewriter", "off");
     const typeStep = useNumWidget(props.node, "type_step", 0.1);
+    const fps2 = /* @__PURE__ */ ref(24);
+    watch([sourceVideoUrl, () => hasTimeTokens(text.value)], async ([url, tokens]) => {
+      if (!url || !tokens) return;
+      const info = await fetchMediaInfo(url).catch(() => null);
+      if (url === sourceVideoUrl.value) fps2.value = (info == null ? void 0 : info.fps) || 24;
+    }, { immediate: true });
+    const previewCanvas = /* @__PURE__ */ ref(null);
+    useTextOverlayPreview({
+      canvas: previewCanvas,
+      video: computed(() => {
+        var _a2;
+        return ((_a2 = playerRef.value) == null ? void 0 : _a2.videoEl) ?? null;
+      }),
+      style: () => ({
+        font: font2.value,
+        size: size2.value,
+        color: color.value,
+        stroke: stroke.value,
+        strokeColor: strokeColor.value,
+        anchor: anchor2.value
+      }),
+      textAt: (t2) => titleTextAt({
+        text: text.value,
+        tStart: tStart.value,
+        tEnd: tEnd.value,
+        fadeS: fadeS.value,
+        typewriter: typewriter.value,
+        typeStep: typeStep.value
+      }, t2, fps2.value)
+    });
     const TYPEWRITERS = [
       { value: "off", label: "Off" },
       { value: "char", label: "Chars" },
@@ -216585,7 +216847,16 @@ const _sfc_main$1C = /* @__PURE__ */ defineComponent({
             ref_key: "playerRef",
             ref: playerRef,
             "source-video-url": sourceVideoUrl.value
-          }, null, 8, ["source-video-url"])
+          }, {
+            overlay: withCtx(() => [
+              createBaseVNode("canvas", {
+                ref_key: "previewCanvas",
+                ref: previewCanvas,
+                class: "ctv:absolute ctv:inset-0 ctv:size-full ctv:object-contain ctv:pointer-events-none"
+              }, null, 512)
+            ]),
+            _: 1
+          }, 8, ["source-video-url"])
         ]),
         default: withCtx(() => [
           createBaseVNode("div", {
@@ -216844,10 +217115,41 @@ const _sfc_main$1B = /* @__PURE__ */ defineComponent({
     const stroke = useNumWidget(props.node, "stroke", 2);
     const anchor2 = useStrWidget(props.node, "anchor", "bottom");
     const { cues, addCue, removeCue, onCueNum, onCueText } = useSubtitleCues(subs2);
+    const playerRef = /* @__PURE__ */ ref(null);
+    const previewCanvas = /* @__PURE__ */ ref(null);
+    useTextOverlayPreview({
+      canvas: previewCanvas,
+      video: computed(() => {
+        var _a2;
+        return ((_a2 = playerRef.value) == null ? void 0 : _a2.videoEl) ?? null;
+      }),
+      style: () => ({
+        font: font2.value,
+        size: size2.value,
+        color: color.value,
+        stroke: stroke.value,
+        strokeColor: "#000000",
+        anchor: anchor2.value
+      }),
+      textAt: (t2) => cueTextAt(cues.value, t2)
+    });
     return (_ctx, _cache2) => {
       return openBlock(), createBlock(_sfc_main$3L, { node: __props.node }, {
         player: withCtx(() => [
-          createVNode(VideoPlayerLite, { "source-video-url": sourceVideoUrl.value }, null, 8, ["source-video-url"])
+          createVNode(VideoPlayerLite, {
+            ref_key: "playerRef",
+            ref: playerRef,
+            "source-video-url": sourceVideoUrl.value
+          }, {
+            overlay: withCtx(() => [
+              createBaseVNode("canvas", {
+                ref_key: "previewCanvas",
+                ref: previewCanvas,
+                class: "ctv:absolute ctv:inset-0 ctv:size-full ctv:object-contain ctv:pointer-events-none"
+              }, null, 512)
+            ]),
+            _: 1
+          }, 8, ["source-video-url"])
         ]),
         default: withCtx(() => [
           createBaseVNode("div", {
@@ -245957,4 +246259,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-CFxG7-gi.mjs.map
+//# sourceMappingURL=main-DNZyiEot.mjs.map
