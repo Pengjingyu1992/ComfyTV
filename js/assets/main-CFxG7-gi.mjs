@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-CZBo3bZA.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-TsdaNJK9.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86648,7 +86648,7 @@ const _sfc_main$4t = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-B1GJeE58.mjs"),
+      loader: () => import("./AgentPanelRoot-CJ0e48_U.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149348,7 +149348,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-BGD_U0Pn.mjs");
+    const { STLLoader } = await import("./STLLoader-DDMhkxaD.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149356,7 +149356,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-wKUuxm9C.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-nQ3Y4zqI.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -207115,7 +207115,7 @@ const _sfc_main$2j = /* @__PURE__ */ defineComponent({
           return openBlock(), createElementBlock("button", {
             key: opt.value,
             type: "button",
-            class: normalizeClass(["ctv:flex-1 ctv:min-w-12 ctv:py-0.5 ctv:px-1.5 ctv:text-2xs ctv:rounded ctv:cursor-pointer ctv:border ctv:transition-colors ctv:whitespace-nowrap", __props.modelValue === opt.value ? "ctv:bg-secondary-background-selected ctv:border-primary-background ctv:text-primary-background" : "ctv:bg-secondary-background ctv:border-border-subtle ctv:text-base-foreground ctv:hover:border-primary-background"]),
+            class: normalizeClass(["ctv:flex-1 ctv:min-w-fit ctv:py-0.5 ctv:px-1.5 ctv:text-2xs ctv:rounded ctv:cursor-pointer ctv:border ctv:transition-colors ctv:whitespace-nowrap", __props.modelValue === opt.value ? "ctv:bg-secondary-background-selected ctv:border-primary-background ctv:text-primary-background" : "ctv:bg-secondary-background ctv:border-border-subtle ctv:text-base-foreground ctv:hover:border-primary-background"]),
             title: opt.title ?? opt.label,
             onClick: ($event) => _ctx.$emit("update:modelValue", opt.value)
           }, [
@@ -245957,4 +245957,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-VekEJmnZ.mjs.map
+//# sourceMappingURL=main-CFxG7-gi.mjs.map
