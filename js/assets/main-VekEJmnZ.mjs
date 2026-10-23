@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-vwVmxCKk.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-CZBo3bZA.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -67559,6 +67559,34 @@ const _sfc_main$4G = /* @__PURE__ */ defineComponent({
     };
   }
 });
+const BUILTIN_FONTS = [
+  { value: "Inter-Regular", label: "Inter" },
+  { value: "NotoSansSC-Regular", label: "Noto SC" },
+  { value: "msyh", label: "雅黑" },
+  { value: "arial", label: "Arial" }
+];
+const RENDERABLE = /\.(ttf|otf|ttc)$/i;
+const fontsRevision = /* @__PURE__ */ ref(0);
+function notifyFontsChanged() {
+  fontsRevision.value++;
+}
+function useFontLibrary() {
+  const uploaded = /* @__PURE__ */ ref([]);
+  async function refreshFonts() {
+    try {
+      const rows = (await listResources("font")).resources;
+      uploaded.value = [...new Set(rows.filter((r2) => !r2.missing && RENDERABLE.test(r2.filename)).map((r2) => r2.name))].sort();
+    } catch {
+    }
+  }
+  const fontOptions = computed(() => [
+    ...uploaded.value.map((name) => ({ value: name, label: name })),
+    ...BUILTIN_FONTS.filter((f2) => !uploaded.value.includes(f2.value))
+  ]);
+  onMounted(refreshFonts);
+  watch(fontsRevision, refreshFonts);
+  return { fontOptions, refreshFonts };
+}
 const RESOURCE_ACCEPT = {
   lut: ".cube,.3dl,.dat,.m3d,.csp",
   font: ".ttf,.otf,.woff,.woff2",
@@ -67587,6 +67615,7 @@ function useResourcesPanel(isActive2) {
     loading2.value = true;
     try {
       resources2.value = (await listResources()).resources;
+      notifyFontsChanged();
     } catch {
       resources2.value = [];
     } finally {
@@ -86619,7 +86648,7 @@ const _sfc_main$4t = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-DO3cgOid.mjs"),
+      loader: () => import("./AgentPanelRoot-B1GJeE58.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149319,7 +149348,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-dghFGctp.mjs");
+    const { STLLoader } = await import("./STLLoader-BGD_U0Pn.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149327,7 +149356,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-CE-xyHRY.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-wKUuxm9C.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -216510,12 +216539,7 @@ const _sfc_main$1C = /* @__PURE__ */ defineComponent({
   },
   setup(__props) {
     const props = __props;
-    const FONTS = [
-      { value: "Inter-Regular", label: "Inter" },
-      { value: "NotoSansSC-Regular", label: "Noto SC" },
-      { value: "msyh", label: "雅黑" },
-      { value: "arial", label: "Arial" }
-    ];
+    const { fontOptions } = useFontLibrary();
     const ANCHORS_TOP = [
       { value: "top-left", label: "↖", title: "top-left" },
       { value: "top", label: "↑", title: "top" },
@@ -216585,8 +216609,8 @@ const _sfc_main$1C = /* @__PURE__ */ defineComponent({
             createVNode(_sfc_main$2j, {
               modelValue: unref(font2),
               "onUpdate:modelValue": _cache2[1] || (_cache2[1] = ($event) => /* @__PURE__ */ isRef(font2) ? font2.value = $event : null),
-              options: FONTS
-            }, null, 8, ["modelValue"]),
+              options: unref(fontOptions)
+            }, null, 8, ["modelValue", "options"]),
             createVNode(FxSlider$1, {
               modelValue: unref(size2),
               "onUpdate:modelValue": _cache2[2] || (_cache2[2] = ($event) => /* @__PURE__ */ isRef(size2) ? size2.value = $event : null),
@@ -216807,12 +216831,7 @@ const _sfc_main$1B = /* @__PURE__ */ defineComponent({
   },
   setup(__props) {
     const props = __props;
-    const FONTS = [
-      { value: "Inter-Regular", label: "Inter" },
-      { value: "NotoSansSC-Regular", label: "Noto SC" },
-      { value: "msyh", label: "雅黑" },
-      { value: "arial", label: "Arial" }
-    ];
+    const { fontOptions } = useFontLibrary();
     const ANCHORS = [
       { value: "bottom", label: "Bottom" },
       { value: "top", label: "Top" }
@@ -216904,8 +216923,8 @@ const _sfc_main$1B = /* @__PURE__ */ defineComponent({
             createVNode(_sfc_main$2j, {
               modelValue: unref(font2),
               "onUpdate:modelValue": _cache2[3] || (_cache2[3] = ($event) => /* @__PURE__ */ isRef(font2) ? font2.value = $event : null),
-              options: FONTS
-            }, null, 8, ["modelValue"]),
+              options: unref(fontOptions)
+            }, null, 8, ["modelValue", "options"]),
             createVNode(FxSlider$1, {
               modelValue: unref(size2),
               "onUpdate:modelValue": _cache2[4] || (_cache2[4] = ($event) => /* @__PURE__ */ isRef(size2) ? size2.value = $event : null),
@@ -245938,4 +245957,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-r7jf3WyD.mjs.map
+//# sourceMappingURL=main-VekEJmnZ.mjs.map
