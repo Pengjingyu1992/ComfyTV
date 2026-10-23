@@ -233,6 +233,12 @@ body[data-v2-slot-hover] .p-tooltip { display: none !important; }
   flex: 1;
   min-height: 0;
 }
+.lg-node[data-v2-shell] [data-testid="node-widgets"] > :has(.v2-card) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .lg-node[data-v2-shell] .lg-node-widget { display: flex; padding: 0; }
 .lg-node[data-v2-shell] .lg-node-widget:has(.v2-card) { flex: 1; min-height: 0; }
 .lg-node[data-v2-shell] .lg-node-widget > div:first-child { display: none; }

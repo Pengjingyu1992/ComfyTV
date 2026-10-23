@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-BUQuMhc4.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-vwVmxCKk.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86619,7 +86619,7 @@ const _sfc_main$4t = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-hr5OK_Ts.mjs"),
+      loader: () => import("./AgentPanelRoot-DO3cgOid.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149319,7 +149319,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-bziMykd8.mjs");
+    const { STLLoader } = await import("./STLLoader-dghFGctp.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149327,7 +149327,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-Duqsgpcn.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-CE-xyHRY.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -238537,6 +238537,12 @@ body[data-v2-slot-hover] .p-tooltip { display: none !important; }
   flex: 1;
   min-height: 0;
 }
+.lg-node[data-v2-shell] [data-testid="node-widgets"] > :has(.v2-card) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .lg-node[data-v2-shell] .lg-node-widget { display: flex; padding: 0; }
 .lg-node[data-v2-shell] .lg-node-widget:has(.v2-card) { flex: 1; min-height: 0; }
 .lg-node[data-v2-shell] .lg-node-widget > div:first-child { display: none; }
@@ -245932,4 +245938,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-C2u7pEPt.mjs.map
+//# sourceMappingURL=main-r7jf3WyD.mjs.map
