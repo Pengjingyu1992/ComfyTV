@@ -1,7 +1,9 @@
 import { useResizeObserver, useTimeoutFn } from '@vueuse/core'
 import { effectScope, watch, type EffectScope } from 'vue'
 
+import { t } from '@/i18n'
 import { app, type ComfyNode } from '@/lib/comfyApp'
+import { useServerStore } from '@/stores/serverStore'
 
 const RING_FADE_MS = 400
 
@@ -142,6 +144,31 @@ export function createNodeScope(node: ComfyNode): EffectScope {
     prev?.apply(this, args)
   }
   return scope
+}
+
+export function bindLivePreview(
+  node: ComfyNode,
+  busy: HTMLElement,
+  state: { running?: boolean; livePreview?: string | null },
+) {
+  const img = el('img', 'v2-preview__live') as HTMLImageElement
+  img.alt = ''
+  busy.before(img)
+  const note = el('div', 'v2-preview__note', t('v2.livePreviewLocalOnly'))
+  busy.append(note)
+  const servers = useServerStore()
+  watch(
+    () => [state.livePreview, state.running] as const,
+    ([url, running]) => {
+      if (url) img.src = url
+      else img.removeAttribute('src')
+      img.dataset.on = url ? '1' : ''
+      busy.dataset.live = url ? '1' : ''
+      note.hidden = !running
+        || servers.resolveSelection((node as any).properties?.comfytv_server) == null
+    },
+    { immediate: true },
+  )
 }
 
 export function bindProgressRing(

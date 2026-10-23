@@ -26,6 +26,7 @@ export interface NodeRunHandlers {
   onSuccess?: (detail: any) => void
   onStatus?: (detail: any) => void
   onRemoteJob?: (detail: any) => void
+  onPreview?: (blob: Blob) => void
 }
 
 const HISTORY_LIMIT = 30
@@ -203,6 +204,11 @@ export const useExecutionStore = defineStore('comfytv-execution', () => {
       })
       handlersForId(nodeId)?.onRemoteJob?.(d)
     }
+    const onPreview = (e: any) => {
+      const d = e?.detail
+      if (!(d?.blob instanceof Blob)) return
+      handlersForId(String(d.displayNodeId ?? d.nodeId))?.onPreview?.(d.blob)
+    }
 
     api.addEventListener('status', onStatus)
     api.addEventListener('comfytv-remote-job', onRemoteJob)
@@ -215,6 +221,7 @@ export const useExecutionStore = defineStore('comfytv-execution', () => {
     api.addEventListener('execution_cached', onExecutionCached)
     api.addEventListener('progress', onProgress)
     api.addEventListener('progress_text', onProgressText)
+    api.addEventListener('b_preview_with_metadata', onPreview)
 
     return () => {
       api.removeEventListener('status', onStatus)
@@ -228,6 +235,7 @@ export const useExecutionStore = defineStore('comfytv-execution', () => {
       api.removeEventListener('execution_cached', onExecutionCached)
       api.removeEventListener('progress', onProgress)
       api.removeEventListener('progress_text', onProgressText)
+      api.removeEventListener('b_preview_with_metadata', onPreview)
     }
   }
 

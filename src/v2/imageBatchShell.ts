@@ -24,6 +24,7 @@ import {
   I,
   ICON_GRIP,
   RUN_BUTTON_HTML,
+  bindLivePreview,
   bindProgressRing,
   createNodeScope,
   el,
@@ -247,6 +248,7 @@ function makeImageBatchShell(shellCfg: ImageBatchShellConfig = {}) {
   scope.run(() => {
     watch(() => [stageState.output, stageState.pickedIndex], projectBatch, { immediate: true })
     bindProgressRing(card, stageState)
+    bindLivePreview(node, busy, stageState)
     watch(
       () => [stageState.running, stageState.progress?.value, stageState.progress?.max, stageState.progress?.text] as const,
       ([running, v, m, text]) => {

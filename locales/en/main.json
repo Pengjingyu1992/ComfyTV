@@ -67,6 +67,7 @@
     "assetLoaderEmpty": "No asset selected",
     "params": "Params",
     "generatorHint": "Press ↑ to generate",
+    "livePreviewLocalOnly": "Sampling preview is only available for local runs",
     "change": "Change",
     "upload": "Upload",
     "renameHint": "Double-click to rename",

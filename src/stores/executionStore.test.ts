@@ -318,6 +318,18 @@ describe('executionStore.bindToApi', () => {
     expect(texts[0]).toMatchObject({ nodeId: '9', text: 'done' })
   })
 
+  it('routes sampling preview frames to the stage by display node id', () => {
+    const store = useExecutionStore()
+    store.bindToApi(api)
+    const frames: Blob[] = []
+    store.registerNodeHandlers({ getNodeId: () => '9', onPreview: b => frames.push(b) })
+    const blob = new Blob(['x'], { type: 'image/jpeg' })
+    api.fire('b_preview_with_metadata', { blob, nodeId: '3', displayNodeId: '9', jobId: 'sub' })
+    api.fire('b_preview_with_metadata', { blob, nodeId: '4', displayNodeId: '4', jobId: 'other' })
+    api.fire('b_preview_with_metadata', { nodeId: '9', displayNodeId: '9' })
+    expect(frames).toEqual([blob])
+  })
+
   it('comfytv-remote-progress for unregistered nodes is ignored', () => {
     const store = useExecutionStore()
     store.bindToApi(api)

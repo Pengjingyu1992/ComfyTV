@@ -504,7 +504,9 @@ export async function handleGraphRun(app: any): Promise<CommandResult> {
   const data = await app.graphToPrompt()
   let res: any
   try {
-    res = await app.api.queuePrompt(0, data)
+    res = await app.api.queuePrompt(0, data, {
+      previewMethod: app.extensionManager?.setting?.get?.('Comfy.Execution.PreviewMethod'),
+    })
   } catch (e) {
     throw new Error(`queue rejected the graph: ${extractRunError(e, 0).message}`)
   }

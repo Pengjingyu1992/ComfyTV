@@ -67,6 +67,7 @@
     "assetLoaderEmpty": "未选择资产",
     "params": "参数",
     "generatorHint": "点 ↑ 生成",
+    "livePreviewLocalOnly": "采样预览仅支持本地运行",
     "change": "更换",
     "upload": "上传",
     "renameHint": "双击重命名",

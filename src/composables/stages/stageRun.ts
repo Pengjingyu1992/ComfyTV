@@ -146,7 +146,10 @@ export function createStageRun(opts: {
       }
 
       ;(pm as any).__comfytvOwnRun = true
-      const queueResp = await a.api.queuePrompt(0, pm, { partialExecutionTargets: [targetId] })
+      const queueResp = await a.api.queuePrompt(0, pm, {
+        partialExecutionTargets: [targetId],
+        previewMethod: a.extensionManager?.setting?.get?.('Comfy.Execution.PreviewMethod'),
+      })
       runningPromptId = queueResp?.prompt_id ? String(queueResp.prompt_id) : null
     } catch (e) {
       console.error('[ComfyTV/stage] queuePrompt failed', e)
@@ -234,6 +237,7 @@ export function createStageRun(opts: {
     runningPromptId = null
     clearWatchdog()
     if (state.running) state.running = false
+    store.setLivePreview(state, null)
   }
 
   const onStatus = async (d: any) => {
@@ -278,6 +282,11 @@ export function createStageRun(opts: {
     }
   }
 
+  const onPreview = (blob: Blob) => {
+    if (!state.running || runningJobId) return
+    store.setLivePreview(state, URL.createObjectURL(blob))
+  }
+
   const nodeRunHandlers = {
     getNodeId: () => String(node.id),
     onProgress,
@@ -287,6 +296,7 @@ export function createStageRun(opts: {
     onSuccess: onExecSuccess,
     onStatus,
     onRemoteJob,
+    onPreview,
   }
   executionStore.registerNodeHandlers(nodeRunHandlers)
 
@@ -309,6 +319,7 @@ export function createStageRun(opts: {
   const dispose = () => {
     executionStore.unregisterNodeHandlers(nodeRunHandlers)
     clearWatchdog()
+    store.setLivePreview(state, null)
   }
 
   return { onRunRequest, onCancelRequest, registerPreRun, dispose }

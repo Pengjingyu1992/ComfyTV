@@ -70,6 +70,7 @@ export interface StageState {
   pickedIndex?: number
   pool?: string | null
   progress?: { value: number; max: number; text?: string } | null
+  livePreview?: string | null
   error?: { message: string; type?: string; traceback?: string } | null
    outputId?: number | null
    durationMs?: number | null
@@ -282,6 +283,7 @@ export const useStageStore = defineStore('comfytv-stage', () => {
     const durationRaw = Array.isArray(msg?.duration_ms) ? msg.duration_ms[0] : msg?.duration_ms
     state.running = false
     state.progress = null
+    setLivePreview(state, null)
     state.error = null  // success clears any prior error
     if (payload == null) return
     const s = typeof payload === 'string' ? payload : String(payload)
@@ -353,7 +355,13 @@ export const useStageStore = defineStore('comfytv-stage', () => {
   ) {
     state.running = false
     state.progress = null
+    setLivePreview(state, null)
     state.error = error
+  }
+
+  function setLivePreview(state: StageState, url: string | null) {
+    if (state.livePreview) URL.revokeObjectURL(state.livePreview)
+    state.livePreview = url
   }
 
   function clearError(state: StageState) {
@@ -374,6 +382,7 @@ export const useStageStore = defineStore('comfytv-stage', () => {
     applyExecutedPayload,
     applyCustomOutputs,
     applyExecutionError,
+    setLivePreview,
     clearError,
     setOutputSlot,
     setPickerPool,

@@ -13,6 +13,7 @@ import { bindNodeDrag } from '@/v2/nodeDrag'
 import { bindPanelCollapse, stageInfoLine } from '@/v2/panelCollapse'
 import { bindShellChrome } from '@/v2/shellChrome'
 import {
+  bindLivePreview,
   bindProgressRing,
   createNodeScope,
   ensureMinSize,
@@ -163,6 +164,7 @@ function makeGeneratorShell(config: GeneratorConfig) {
     const busyPct = busy.querySelector('.v2-preview__busytext span') as HTMLElement
     const busyLabel = busy.querySelector('.v2-preview__busytext small') as HTMLElement
     scope.run(() => {
+      bindLivePreview(node, busy, stageState)
       watch(
         () => [stageState.running, stageState.progress?.value, stageState.progress?.max, stageState.progress?.text] as const,
         ([running, v, m, text]) => {

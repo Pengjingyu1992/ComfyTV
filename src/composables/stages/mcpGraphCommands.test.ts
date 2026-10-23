@@ -450,6 +450,7 @@ describe('handleGraphRun', () => {
       graph: {},
       graphToPrompt: vi.fn(async () => ({ output: { 1: {} }, workflow: {} })),
       api: { queuePrompt: vi.fn(async () => queueResult) },
+      extensionManager: { setting: { get: vi.fn(() => 'taesd') } },
     }
   }
 
@@ -458,7 +459,8 @@ describe('handleGraphRun', () => {
     const out: any = await handleGraphRun(app)
     expect(out).toEqual({ queued: true, prompt_id: 'p-1' })
     expect(app.api.queuePrompt).toHaveBeenCalledWith(
-      0, { output: { 1: {} }, workflow: {} })
+      0, { output: { 1: {} }, workflow: {} }, { previewMethod: 'taesd' })
+    expect(app.extensionManager.setting.get).toHaveBeenCalledWith('Comfy.Execution.PreviewMethod')
   })
 
   it('surfaces node_errors when nothing was queued', async () => {

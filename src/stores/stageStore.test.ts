@@ -760,3 +760,26 @@ describe('stageStore.notifyConsumers', () => {
     expect(store.stateTick).toBe(tick + 1)
   })
 })
+
+describe('stageStore live sampling preview', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('revokes the previous frame and clears it when the run ends', () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const store = useStageStore()
+    const state = store.registerStage({}, 'image')
+    state.running = true
+    store.setLivePreview(state, 'blob:a')
+    store.setLivePreview(state, 'blob:b')
+    expect(revoke).toHaveBeenCalledWith('blob:a')
+    expect(state.livePreview).toBe('blob:b')
+    store.applyExecutedPayload(state, { output: ['/view?filename=x.png'] })
+    expect(revoke).toHaveBeenCalledWith('blob:b')
+    expect(state.livePreview).toBeNull()
+    expect(state.output).toBe('/view?filename=x.png')
+    store.setLivePreview(state, 'blob:c')
+    store.applyExecutionError(state, { message: 'boom' })
+    expect(state.livePreview).toBeNull()
+    revoke.mockRestore()
+  })
+})

@@ -27,6 +27,7 @@ import { V2_SHELLS } from '@/v2/registry'
 import ServerSelectV2 from '@/v2/ServerSelectV2.vue'
 import { bindShellChrome } from '@/v2/shellChrome'
 import {
+  bindLivePreview,
   bindProgressRing,
   createNodeScope,
   el,
@@ -276,6 +277,7 @@ function attach(node: ComfyNode, kind: StageKind, variant: StageVariant) {
   const busyPct = busy.querySelector('.v2-preview__busytext span') as HTMLElement
   const busyLabel = busy.querySelector('.v2-preview__busytext small') as HTMLElement
   scope.run(() => {
+    bindLivePreview(node, busy, stageState)
     watch(
       () => [stageState.running, stageState.progress?.value, stageState.progress?.max, stageState.progress?.text] as const,
       ([running, v, m, text]) => {

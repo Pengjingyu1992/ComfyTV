@@ -136,7 +136,10 @@ async def _run_subprompt(sub_prompt: dict, sub_prompt_id: str,
     async with _get_nested_lock():
         executor = _get_nested_executor()
 
+        from comfy.cli_args import args
+
         outer_client_id = server.client_id
+        outer_preview_method = args.preview_method.value
         outer_node_id = getattr(server, 'last_node_id', None)
         orig_send_sync = server.send_sync
 
@@ -173,7 +176,8 @@ async def _run_subprompt(sub_prompt: dict, sub_prompt_id: str,
                 None,
                 lambda: executor.execute(
                     sub_prompt, sub_prompt_id,
-                    extra_data={"client_id": outer_client_id},
+                    extra_data={"client_id": outer_client_id,
+                                "preview_method": outer_preview_method},
                     execute_outputs=execute_outputs,
                 ),
             )
