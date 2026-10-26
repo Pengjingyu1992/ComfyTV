@@ -18,7 +18,7 @@
         v-model="text"
         rows="2"
         :placeholder="$t('fx.text')"
-        class="ctv:w-full ctv:p-1 ctv:text-[11px] ctv:rounded ctv:bg-secondary-background ctv:border ctv:border-border-subtle ctv:text-base-foreground ctv:resize-none"
+        class="ctv:w-full ctv:shrink-0 ctv:p-1 ctv:text-[11px] ctv:rounded ctv:bg-secondary-background ctv:border ctv:border-border-subtle ctv:text-base-foreground ctv:resize-none"
       />
 
       <div class="ctv:text-2xs ctv:uppercase ctv:tracking-wide ctv:text-muted-foreground">{{ $t('fx.fontLbl') }}</div>
