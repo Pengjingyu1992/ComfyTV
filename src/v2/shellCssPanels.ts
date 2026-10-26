@@ -276,7 +276,7 @@ export const V2_CSS_PANELS = `
   padding: 0 2px;
 }
 .v2-error__x:hover { color: #fecaca; }
-.v2-meta-host { flex: none; }
+.v2-meta-host { flex: none; contain: inline-size; }
 .v2-handle .v2-id {
   display: none;
   flex: none;

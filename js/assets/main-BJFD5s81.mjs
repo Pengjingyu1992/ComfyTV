@@ -59774,7 +59774,7 @@ class ArrayStream {
 }
 let sparkPromise = null;
 function loadSpark() {
-  return sparkPromise ?? (sparkPromise = import("./spark.module-IiDsy-Mh.mjs"));
+  return sparkPromise ?? (sparkPromise = import("./spark.module-DPo_rVIb.mjs"));
 }
 const MESH_MODEL_EXTENSIONS = [".glb", ".gltf", ".fbx", ".obj", ".stl", ".dae"];
 const SPLAT_MODEL_EXTENSIONS = [".spz", ".splat", ".ksplat"];
@@ -86654,7 +86654,7 @@ const _sfc_main$4t = /* @__PURE__ */ defineComponent({
       }
     });
     const AgentPanelRoot = /* @__PURE__ */ defineAsyncComponent({
-      loader: () => import("./AgentPanelRoot-C8yNQd3b.mjs"),
+      loader: () => import("./AgentPanelRoot-DlPcIgSZ.mjs"),
       errorComponent: AgentPanelLoadError,
       onError: (error2, _retry, fail) => {
         reportError(error2, { errorType: "agent_panel_load_failure" });
@@ -149361,7 +149361,7 @@ async function parseToObject(file) {
     return new OBJLoader2().parse(await file.text());
   }
   if (lower.endsWith(".stl")) {
-    const { STLLoader } = await import("./STLLoader-xRbe-tfd.mjs");
+    const { STLLoader } = await import("./STLLoader-CKbpgL-Q.mjs");
     const geometry = new STLLoader().parse(await file.arrayBuffer());
     const material = new MeshStandardMaterial({ color: 13421772 });
     const group = new Group();
@@ -149369,7 +149369,7 @@ async function parseToObject(file) {
     return group;
   }
   if (lower.endsWith(".dae")) {
-    const { ColladaLoader } = await import("./ColladaLoader-BfVIzXot.mjs");
+    const { ColladaLoader } = await import("./ColladaLoader-DHs6X7cb.mjs");
     const collada = new ColladaLoader().parse(await file.text(), "");
     if (!(collada == null ? void 0 : collada.scene)) throw new Error(`failed to parse ${file.name}`);
     return collada.scene;
@@ -238634,7 +238634,7 @@ const V2_CSS_PANELS = `
   padding: 0 2px;
 }
 .v2-error__x:hover { color: #fecaca; }
-.v2-meta-host { flex: none; }
+.v2-meta-host { flex: none; contain: inline-size; }
 .v2-handle .v2-id {
   display: none;
   flex: none;
@@ -246351,4 +246351,4 @@ export {
   DropdownMenuRoot_default as y,
   DropdownMenuTrigger_default as z
 };
-//# sourceMappingURL=main-Ofr_quPc.mjs.map
+//# sourceMappingURL=main-BJFD5s81.mjs.map
